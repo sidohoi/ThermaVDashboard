@@ -1,0 +1,19 @@
+- id: lg_wp_modbus_schrijf_stooklijn_offset
+  alias: "Warmtepomp: Modbus Schrijf Stooklijn Offset"
+  triggers:
+    - trigger: state
+      entity_id: input_number.lg_wp_stooklijn_shift_input
+  actions:
+    - action: modbus.write_register
+      data:
+        hub: lg_therma_v
+        unit: 33
+        address: 4
+        value: >-
+          {% set val = states('input_number.lg_wp_stooklijn_shift_input') | int %}
+          {% if val < 0 %}
+            {{ val + 65536 }}
+          {% else %}
+            {{ val }}
+          {% endif %}
+  mode: single

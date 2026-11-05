@@ -1,0 +1,508 @@
+# ==========================================================
+# LG THERMA V R290 - HOME ASSISTANT CONFIGURATION
+# Voeg onderstaande secties toe aan je eigen configuration.yaml
+# ==========================================================
+
+automation: !include automations.yaml
+modbus: !include modbus.yaml
+
+# ==========================================================
+# INPUT NUMBERS (For dashboard control of Shift & Setpoints)
+# ==========================================================
+input_number:
+  lg_wp_stooklijn_shift_input:
+    name: "LG WP Stooklijn Parallel Shift"
+    min: -5
+    max: 5
+    step: 1
+    unit_of_measurement: "K"
+    icon: mdi:chart-bell-curve-cumulative
+
+  lg_wp_sww_setpoint_input:
+    name: "LG WP SWW Doeltemperatuur Input"
+    min: 40
+    max: 60
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:water-boiler
+
+  lg_stooklijn_buiten_laag:
+    name: "Stooklijn Buiten Temp (Laag)"
+    min: -20
+    max: 5
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+  lg_stooklijn_water_hoog:
+    name: "Stooklijn Water Temp (Max)"
+    min: 25
+    max: 60
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:waves-arrow-up
+  lg_stooklijn_buiten_hoog:
+    name: "Stooklijn Buiten Temp (Hoog)"
+    min: 10
+    max: 25
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-plus
+  lg_stooklijn_water_laag:
+    name: "Stooklijn Water Temp (Min)"
+    min: 15
+    max: 40
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:waves-arrow-down
+
+# ==========================================================
+# TEMPLATE SENSORS (Delta T, Thermal Power, Electrical Power, COP & SCOP)
+# ==========================================================
+template:
+  - sensor:
+      # 1. Water Delta T (Wateruitlaat 30004 - Waterinlaat 30003)
+      - name: "LG WP Delta T"
+        unique_id: lg_wp_delta_t
+        unit_of_measurement: "K"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.lg_wp_aanvoertemperatuur') and has_value('sensor.lg_wp_retourtemperatuur') }}
+        state: >
+          {% set supply = states('sensor.lg_wp_aanvoertemperatuur') | float(0) %}
+          {% set ret = states('sensor.lg_wp_retourtemperatuur') | float(0) %}
+          {{ (supply - ret) | round(2) }}
+
+      # 2. Instantaneous Thermal Output in Watts (Obv 30009 Debiet & Delta T)
+      - name: "LG WP Thermisch Vermogen"
+        unique_id: lg_wp_thermisch_vermogen
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        availability: >
+          {{ (has_value('sensor.lg_wp_flow_debiet') or has_value('sensor.lg_wpflow_debiet'))
+             and has_value('sensor.lg_wp_delta_t')
+             and has_value('binary_sensor.lg_wp_compressor_status') }}
+        state: >
+          {% set flow = [states('sensor.lg_wp_flow_debiet') | float(0), states('sensor.lg_wpflow_debiet') | float(0)] | max %}
+          {% set dt = states('sensor.lg_wp_delta_t') | float(0) %}
+          {% set active = is_state('binary_sensor.lg_wp_compressor_status', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_1', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_trap_1', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_2', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_trap_2', 'on')
+                       or is_state('binary_sensor.lg_wp_sww_boost_heater_status', 'on') %}
+
+          {% if flow > 5.0 and dt > 0 and active %}
+            {{ ((flow / 60.0) * 4186.0 * dt) | round(0) }}
+          {% else %}
+            0
+          {% endif %}
+
+      # 3. Electrical Power (Berekend uit Thermisch Vermogen, Buitentemp 30013 & Aanvoertemp 30004)
+      - name: "LG WP Elektrisch Vermogen"
+        unique_id: lg_wp_elektrisch_vermogen
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set comp_on = is_state('binary_sensor.lg_wp_compressor_status', 'on') %}
+          {% set defrost = is_state('binary_sensor.lg_wp_defrost_status', 'on') %}
+          {% set pump_on = is_state('binary_sensor.lg_wp_waterpomp_status', 'on') %}
+          {% set lwt = states('sensor.lg_wp_aanvoertemperatuur') | float(28) %}
+          {% set dhw_t = states('sensor.lg_wp_sww_boilertemperatuur') | float(45) %}
+          {% set oat = states('sensor.lg_wp_buitentemperatuur') | float(7) %}
+          {% set p_th = states('sensor.lg_wp_thermisch_vermogen') | float(0) %}
+          {% set sww = is_state('binary_sensor.lg_wp_sww_verwarmen_status', 'on') and (lwt > 36 or lwt > (dhw_t - 4)) %}
+          {% set buh1 = 3000 if (is_state('binary_sensor.lg_wp_backup_heater_1', 'on') or is_state('binary_sensor.lg_wp_backup_heater_trap_1', 'on')) else 0 %}
+          {% set buh2 = 3000 if (is_state('binary_sensor.lg_wp_backup_heater_2', 'on') or is_state('binary_sensor.lg_wp_backup_heater_trap_2', 'on')) else 0 %}
+          {% set boost = 3000 if is_state('binary_sensor.lg_wp_sww_boost_heater_status', 'on') else 0 %}
+
+          {% if defrost %}
+            {{ (950 + buh1 + buh2 + boost) | round(0) }}
+          {% elif comp_on %}
+            {% set overhead = 110 if sww else 85 %}
+            {% set lift = [lwt - oat, 8.0] | max %}
+            {% set carnot = (lwt + 273.15) / (lift + 5.0) %}
+            {% set load_penalty = [ (p_th - 2000.0) / 5000.0, 0.0 ] | max * 0.07 %}
+            {% set eff_factor = (0.45 if sww else 0.50) - load_penalty %}
+            {% set est_cop = [ [carnot * eff_factor, 1.7] | max, 6.4 ] | min %}
+            {% set comp_el = (p_th / est_cop) if p_th > 500 else 380 %}
+            {{ (comp_el + overhead + buh1 + buh2 + boost) | round(0) }}
+          {% elif (buh1 + buh2 + boost) > 0 %}
+            {{ (85 + buh1 + buh2 + boost) | round(0) }}
+          {% elif pump_on %}
+            35
+          {% else %}
+            12
+          {% endif %}
+
+      # 4. Instantaneous COP
+      - name: "LG WP Actuele COP"
+        unique_id: lg_wp_actuele_cop
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.lg_wp_thermisch_vermogen') and has_value('sensor.lg_wp_elektrisch_vermogen') }}
+        state: >
+          {% set p_th = states('sensor.lg_wp_thermisch_vermogen') | float(0) %}
+          {% set p_el = states('sensor.lg_wp_elektrisch_vermogen') | float(0) %}
+          {% if is_state('binary_sensor.lg_wp_compressor_status', 'on') and p_el > 100 and p_th > 0 %}
+            {% set cop = p_th / p_el %}
+            {{ [ [cop, 0.0] | max, 9.0 ] | min | round(2) }}
+          {% else %}
+            0.0
+          {% endif %}
+
+      # 5. Split Power: CV vs SWW
+      - name: "LG WP Elektrisch Vermogen CV"
+        unique_id: lg_wp_elektrisch_vermogen_cv
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set active = is_state('binary_sensor.lg_wp_compressor_status', 'on')
+                       or is_state('binary_sensor.lg_wp_defrost_status', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_1', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_trap_1', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_2', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_trap_2', 'on')
+                       or is_state('binary_sensor.lg_wp_sww_boost_heater_status', 'on') %}
+          {% set lwt = states('sensor.lg_wp_aanvoertemperatuur') | float(28) %}
+          {% set dhw_t = states('sensor.lg_wp_sww_boilertemperatuur') | float(45) %}
+          {% set sww = is_state('binary_sensor.lg_wp_sww_verwarmen_status', 'on') and (lwt > 36 or lwt > (dhw_t - 4)) %}
+          {{ (states('sensor.lg_wp_elektrisch_vermogen') | float(0)) if (active and not sww) else 0 }}
+
+      - name: "LG WP Elektrisch Vermogen SWW"
+        unique_id: lg_wp_elektrisch_vermogen_sww
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set active = is_state('binary_sensor.lg_wp_compressor_status', 'on')
+                       or is_state('binary_sensor.lg_wp_defrost_status', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_1', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_trap_1', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_2', 'on')
+                       or is_state('binary_sensor.lg_wp_backup_heater_trap_2', 'on')
+                       or is_state('binary_sensor.lg_wp_sww_boost_heater_status', 'on') %}
+          {% set lwt = states('sensor.lg_wp_aanvoertemperatuur') | float(28) %}
+          {% set dhw_t = states('sensor.lg_wp_sww_boilertemperatuur') | float(45) %}
+          {% set sww = is_state('binary_sensor.lg_wp_sww_verwarmen_status', 'on') and (lwt > 36 or lwt > (dhw_t - 4)) %}
+          {{ (states('sensor.lg_wp_elektrisch_vermogen') | float(0)) if (active and sww) else 0 }}
+
+      - name: "LG WP Thermisch Vermogen CV"
+        unique_id: lg_wp_thermisch_vermogen_cv
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set lwt = states('sensor.lg_wp_aanvoertemperatuur') | float(28) %}
+          {% set dhw_t = states('sensor.lg_wp_sww_boilertemperatuur') | float(45) %}
+          {% set sww = is_state('binary_sensor.lg_wp_sww_verwarmen_status', 'on') and (lwt > 36 or lwt > (dhw_t - 4)) %}
+          {{ 0 if sww else (states('sensor.lg_wp_thermisch_vermogen') | float(0)) }}
+
+      - name: "LG WP Thermisch Vermogen SWW"
+        unique_id: lg_wp_thermisch_vermogen_sww
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set lwt = states('sensor.lg_wp_aanvoertemperatuur') | float(28) %}
+          {% set dhw_t = states('sensor.lg_wp_sww_boilertemperatuur') | float(45) %}
+          {% set sww = is_state('binary_sensor.lg_wp_sww_verwarmen_status', 'on') and (lwt > 36 or lwt > (dhw_t - 4)) %}
+          {{ (states('sensor.lg_wp_thermisch_vermogen') | float(0)) if sww else 0 }}
+
+      # 6. Human-Readable Operating Mode Text
+      - name: "LG WP Bedrijfsmodus Tekst"
+        unique_id: lg_wp_bedrijfsmodus_tekst
+        state: >
+          {% set lwt = states('sensor.lg_wp_aanvoertemperatuur') | float(28) %}
+          {% set dhw_t = states('sensor.lg_wp_sww_boilertemperatuur') | float(45) %}
+          {% set sww = is_state('binary_sensor.lg_wp_sww_verwarmen_status', 'on') and (lwt > 36 or lwt > (dhw_t - 4)) %}
+          {% set comp_on = is_state('binary_sensor.lg_wp_compressor_status', 'on') %}
+          {% if is_state('binary_sensor.lg_wp_defrost_status', 'on') %}
+            Defrost Actief
+          {% elif sww and comp_on %}
+            SWW Boiler Laden
+          {% elif sww and is_state('binary_sensor.lg_wp_waterpomp_status', 'on') %}
+            SWW Circuit (Nadraaien)
+          {% elif is_state('binary_sensor.lg_wp_koeling_status', 'on') and comp_on %}
+            Koeling Actief
+          {% elif comp_on %}
+            Vloerverwarming (CV)
+          {% elif is_state('binary_sensor.lg_wp_waterpomp_status', 'on') %}
+            Nadraaien / Snuffelcyclus
+          {% else %}
+            Stand-by
+          {% endif %}
+
+      # 7. Dag COP & SCOP (obv ThinQ met fallback naar berekend vermogen)
+      - name: "LG WP COP Vandaag"
+        unique_id: lg_wp_cop_vandaag
+        state_class: measurement
+        state: >
+          {% set th = (states('sensor.lg_warmte_dag_cv') | float(0)) + (states('sensor.lg_warmte_dag_sww') | float(0)) %}
+          {% set raw_thinq = [states('sensor.lg_thinq_stroom_dag') | float(0), states('sensor.lg_therma_v_7kw_energy_today') | float(0)] | max %}
+          {% set uom = (state_attr('sensor.lg_thinq_stroom_dag', 'unit_of_measurement') or state_attr('sensor.lg_therma_v_7kw_energy_today', 'unit_of_measurement') or '') | lower %}
+          {% set el_calc = (states('sensor.lg_stroom_dag_cv') | float(0)) + (states('sensor.lg_stroom_dag_sww') | float(0)) %}
+          {% set ref_kwh = [th, el_calc, 0.1] | max %}
+          {% set el_thinq = (raw_thinq / 1000.0) if (uom == 'wh' or (raw_thinq / ref_kwh > 50)) else raw_thinq %}
+          {% set el = el_thinq if el_thinq > 0.01 else el_calc %}
+          {% if el > 0.01 and th > 0.01 %}
+            {{ [ [(th / el), 0.0] | max, 9.0 ] | min | round(2) }}
+          {% else %}
+            0.0
+          {% endif %}
+
+      - name: "LG WP SCOP Totaal Jaar"
+        unique_id: lg_wp_scop_totaal_jaar
+        state_class: measurement
+        state: >
+          {% set th = (states('sensor.lg_warmte_jaar_cv') | float(0)) + (states('sensor.lg_warmte_jaar_sww') | float(0)) %}
+          {% set raw_thinq = states('sensor.lg_thinq_stroom_jaar') | float(0) %}
+          {% set uom = state_attr('sensor.lg_thinq_stroom_jaar', 'unit_of_measurement') | default('', true) | lower %}
+          {% set el_calc = (states('sensor.lg_stroom_jaar_cv') | float(0)) + (states('sensor.lg_stroom_jaar_sww') | float(0)) %}
+          {% set ref_kwh = [th, el_calc, 0.1] | max %}
+          {% set el_thinq = (raw_thinq / 1000.0) if (uom == 'wh' or (raw_thinq / ref_kwh > 50)) else raw_thinq %}
+          {% set el = el_thinq if el_thinq > 0.01 else el_calc %}
+          {% if el > 0.01 and th > 0.01 %}
+            {{ [ [(th / el), 0.0] | max, 9.0 ] | min | round(2) }}
+          {% else %}
+            0.0
+          {% endif %}
+
+      - name: "LG WP SCOP All Time"
+        unique_id: lg_wp_scop_all_time
+        state_class: measurement
+        state: >
+          {% set th = (states('sensor.lg_warmte_alltime_cv') | float(0)) + (states('sensor.lg_warmte_alltime_sww') | float(0)) %}
+          {% set raw_thinq = states('sensor.lg_thinq_stroom_alltime') | float(0) %}
+          {% set uom = state_attr('sensor.lg_thinq_stroom_alltime', 'unit_of_measurement') | default('', true) | lower %}
+          {% set el_calc = (states('sensor.lg_stroom_alltime_cv') | float(0)) + (states('sensor.lg_stroom_alltime_sww') | float(0)) %}
+          {% set ref_kwh = [th, el_calc, 0.1] | max %}
+          {% set el_thinq = (raw_thinq / 1000.0) if (uom == 'wh' or (raw_thinq / ref_kwh > 50)) else raw_thinq %}
+          {% set el = el_thinq if el_thinq > 0.01 else el_calc %}
+          {% if el > 0.01 and th > 0.01 %}
+            {{ [ [(th / el), 0.0] | max, 9.0 ] | min | round(2) }}
+          {% else %}
+            0.0
+          {% endif %}
+
+      # CV en SWW Jaar-SCOP
+      - name: "LG WP SCOP CV Jaar"
+        unique_id: lg_wp_scop_cv_jaar
+        state_class: measurement
+        state: >
+          {% set th_cv = states('sensor.lg_warmte_jaar_cv') | float(0) %}
+          {% set th_sww = states('sensor.lg_warmte_jaar_sww') | float(0) %}
+          {% set th_tot = th_cv + th_sww %}
+          {% set el_est_cv = states('sensor.lg_stroom_jaar_cv') | float(0) %}
+          {% set el_est_sww = states('sensor.lg_stroom_jaar_sww') | float(0) %}
+          {% set el_est_tot = el_est_cv + el_est_sww %}
+          {% set raw_thinq = states('sensor.lg_thinq_stroom_jaar') | float(0) %}
+          {% set uom = state_attr('sensor.lg_thinq_stroom_jaar', 'unit_of_measurement') | default('', true) | lower %}
+          {% set ref_kwh = [th_tot, el_est_tot, 0.1] | max %}
+          {% set el_thinq = (raw_thinq / 1000.0) if (uom == 'wh' or (raw_thinq / ref_kwh > 50)) else raw_thinq %}
+          {% set el_tot = el_thinq if el_thinq > 0.01 else el_est_tot %}
+          {% if th_cv > 0.01 and el_tot > 0.01 %}
+            {% if th_sww <= 0.01 %}
+              {% set cv_share = 1.0 %}
+            {% elif el_est_tot > 0.01 and el_est_cv > 0.005 %}
+              {% set cv_share = el_est_cv / el_est_tot %}
+            {% else %}
+              {% set cv_share = th_cv / th_tot %}
+            {% endif %}
+            {% set real_el_cv = el_tot * cv_share %}
+            {% if real_el_cv > 0.01 %}
+              {{ [ [(th_cv / real_el_cv), 0.0] | max, 9.0 ] | min | round(2) }}
+            {% else %}
+              0.0
+            {% endif %}
+          {% else %}
+            0.0
+          {% endif %}
+
+      - name: "LG WP SCOP SWW Jaar"
+        unique_id: lg_wp_scop_sww_jaar
+        state_class: measurement
+        state: >
+          {% set th_cv = states('sensor.lg_warmte_jaar_cv') | float(0) %}
+          {% set th_sww = states('sensor.lg_warmte_jaar_sww') | float(0) %}
+          {% set th_tot = th_cv + th_sww %}
+          {% set el_est_cv = states('sensor.lg_stroom_jaar_cv') | float(0) %}
+          {% set el_est_sww = states('sensor.lg_stroom_jaar_sww') | float(0) %}
+          {% set el_est_tot = el_est_cv + el_est_sww %}
+          {% set raw_thinq = states('sensor.lg_thinq_stroom_jaar') | float(0) %}
+          {% set uom = state_attr('sensor.lg_thinq_stroom_jaar', 'unit_of_measurement') | default('', true) | lower %}
+          {% set ref_kwh = [th_tot, el_est_tot, 0.1] | max %}
+          {% set el_thinq = (raw_thinq / 1000.0) if (uom == 'wh' or (raw_thinq / ref_kwh > 50)) else raw_thinq %}
+          {% set el_tot = el_thinq if el_thinq > 0.01 else el_est_tot %}
+          {% if th_sww > 0.01 and el_tot > 0.01 %}
+            {% if th_cv <= 0.01 %}
+              {% set sww_share = 1.0 %}
+            {% elif el_est_tot > 0.01 and el_est_sww > 0.005 %}
+              {% set sww_share = el_est_sww / el_est_tot %}
+            {% else %}
+              {% set sww_share = th_sww / th_tot %}
+            {% endif %}
+            {% set real_el_sww = el_tot * sww_share %}
+            {% if real_el_sww > 0.01 %}
+              {{ [ [(th_sww / real_el_sww), 0.0] | max, 9.0 ] | min | round(2) }}
+            {% else %}
+              0.0
+            {% endif %}
+          {% else %}
+            0.0
+          {% endif %}
+
+# ==========================================================
+# RIEMANN SUM INTEGRATORS (Convert W -> kWh)
+# ==========================================================
+sensor:
+  - platform: integration
+    source: sensor.lg_wp_elektrisch_vermogen_cv
+    name: "LG Stroom Totaal CV"
+    unique_id: lg_stroom_totaal_cv
+    unit_prefix: k
+    round: 3
+    method: left
+    max_sub_interval:
+      minutes: 1
+
+  - platform: integration
+    source: sensor.lg_wp_elektrisch_vermogen_sww
+    name: "LG Stroom Totaal SWW"
+    unique_id: lg_stroom_totaal_sww
+    unit_prefix: k
+    round: 3
+    method: left
+    max_sub_interval:
+      minutes: 1
+
+  - platform: integration
+    source: sensor.lg_wp_thermisch_vermogen_cv
+    name: "LG Warmte Totaal CV"
+    unique_id: lg_warmte_totaal_cv
+    unit_prefix: k
+    round: 3
+    method: left
+    max_sub_interval:
+      minutes: 1
+
+  - platform: integration
+    source: sensor.lg_wp_thermisch_vermogen_sww
+    name: "LG Warmte Totaal SWW"
+    unique_id: lg_warmte_totaal_sww
+    unit_prefix: k
+    round: 3
+    method: left
+    max_sub_interval:
+      minutes: 1
+
+# ==========================================================
+# UTILITY METERS (Dag, Week, Maand, Jaar & All-Time in kWh)
+# ==========================================================
+utility_meter:
+  # 1. DAG-TELLERS
+  lg_thinq_stroom_dag:
+    source: sensor.lg_therma_v_7kw_energy_today
+    name: "LG ThinQ Stroom Dag"
+    cycle: daily
+  lg_stroom_dag_cv:
+    source: sensor.lg_stroom_totaal_cv
+    name: "LG Stroom Dag CV"
+    cycle: daily
+  lg_stroom_dag_sww:
+    source: sensor.lg_stroom_totaal_sww
+    name: "LG Stroom Dag SWW"
+    cycle: daily
+  lg_warmte_dag_cv:
+    source: sensor.lg_warmte_totaal_cv
+    name: "LG Warmte Dag CV"
+    cycle: daily
+  lg_warmte_dag_sww:
+    source: sensor.lg_warmte_totaal_sww
+    name: "LG Warmte Dag SWW"
+    cycle: daily
+
+  # 2. WEEK-TELLERS
+  lg_thinq_stroom_week:
+    source: sensor.lg_therma_v_7kw_energy_today
+    name: "LG ThinQ Stroom Week"
+    cycle: weekly
+  lg_stroom_week_cv:
+    source: sensor.lg_stroom_totaal_cv
+    name: "LG Stroom Week CV"
+    cycle: weekly
+  lg_stroom_week_sww:
+    source: sensor.lg_stroom_totaal_sww
+    name: "LG Stroom Week SWW"
+    cycle: weekly
+  lg_warmte_week_cv:
+    source: sensor.lg_warmte_totaal_cv
+    name: "LG Warmte Week CV"
+    cycle: weekly
+  lg_warmte_week_sww:
+    source: sensor.lg_warmte_totaal_sww
+    name: "LG Warmte Week SWW"
+    cycle: weekly
+
+  # 3. MAAND-TELLERS
+  lg_thinq_stroom_maand:
+    source: sensor.lg_therma_v_7kw_energy_today
+    name: "LG ThinQ Stroom Maand"
+    cycle: monthly
+  lg_stroom_maand_cv:
+    source: sensor.lg_stroom_totaal_cv
+    name: "LG Stroom Maand CV"
+    cycle: monthly
+  lg_stroom_maand_sww:
+    source: sensor.lg_stroom_totaal_sww
+    name: "LG Stroom Maand SWW"
+    cycle: monthly
+  lg_warmte_maand_cv:
+    source: sensor.lg_warmte_totaal_cv
+    name: "LG Warmte Maand CV"
+    cycle: monthly
+  lg_warmte_maand_sww:
+    source: sensor.lg_warmte_totaal_sww
+    name: "LG Warmte Maand SWW"
+    cycle: monthly
+
+  # 4. JAAR-TELLERS
+  lg_thinq_stroom_jaar:
+    source: sensor.lg_therma_v_7kw_energy_today
+    name: "LG ThinQ Stroom Jaar"
+    cycle: yearly
+  lg_stroom_jaar_cv:
+    source: sensor.lg_stroom_totaal_cv
+    name: "LG Stroom Jaar CV"
+    cycle: yearly
+  lg_stroom_jaar_sww:
+    source: sensor.lg_stroom_totaal_sww
+    name: "LG Stroom Jaar SWW"
+    cycle: yearly
+  lg_warmte_jaar_cv:
+    source: sensor.lg_warmte_totaal_cv
+    name: "LG Warmte Jaar CV"
+    cycle: yearly
+  lg_warmte_jaar_sww:
+    source: sensor.lg_warmte_totaal_sww
+    name: "LG Warmte Jaar SWW"
+    cycle: yearly
+
+  # 5. ALL-TIME TELLERS
+  lg_thinq_stroom_alltime:
+    source: sensor.lg_therma_v_7kw_energy_today
+    name: "LG ThinQ Stroom Alltime"
+  lg_stroom_alltime_cv:
+    source: sensor.lg_stroom_totaal_cv
+    name: "LG Stroom Alltime CV"
+  lg_stroom_alltime_sww:
+    source: sensor.lg_stroom_totaal_sww
+    name: "LG Stroom Alltime SWW"
+  lg_warmte_alltime_cv:
+    source: sensor.lg_warmte_totaal_cv
+    name: "LG Warmte Alltime CV"
+  lg_warmte_alltime_sww:
+    source: sensor.lg_warmte_totaal_sww
+    name: "LG Warmte Alltime SWW"
