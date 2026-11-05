@@ -11,15 +11,29 @@ let selectedScopPeriod = "jaar";
 let isDraggingSlider = false;
 
 // =========================================================================
-// USER SETTINGS & PERSISTENCE (DEFAULT LANGUAGE: ENGLISH)
+// USER SETTINGS & HA ENTITY PERSISTENCE (DEFAULT LANGUAGE: ENGLISH)
 // =========================================================================
 const SETTINGS_STORAGE_KEY = "lg_thermav_settings";
+let lastLocalSettingWriteTs = 0;
+
+const CURVE_PARAM_META = {
+  oatLow:  { entity: "input_number.lg_stooklijn_buiten_laag", min: -20, max: 5,  def: -10 },
+  lwtHigh: { entity: "input_number.lg_stooklijn_water_hoog",  min: 25,  max: 60, def: 35  },
+  oatHigh: { entity: "input_number.lg_stooklijn_buiten_hoog", min: 10,  max: 25, def: 15  },
+  lwtLow:  { entity: "input_number.lg_stooklijn_water_laag",  min: 15,  max: 40, def: 25  }
+};
 
 let userSettings = {
   lang: "en",                // "en" (default), "nl", "de", "fr", "es"
+  modelCapacity: "7",        // "7", "9", or "12" (kW)
   curveControl: "inlet",     // "inlet" (Return EWT) or "outlet" (Supply LWT)
+  hydronicTopology: "direct",// "direct", "serial", or "parallel"
   dhwOverrideEnabled: false, // false = Auto (Sensor), true = Overrule (Manual)
-  dhwOverrideTemp: 50.0      // Manual DHW goal temperature (°C)
+  dhwOverrideTemp: 50.0,     // Manual DHW goal temperature (°C)
+  oatLow: -10,
+  lwtHigh: 35,
+  oatHigh: 15,
+  lwtLow: 25
 };
 
 function loadUserSettings() {
@@ -28,8 +42,14 @@ function loadUserSettings() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed.lang && I18N[parsed.lang]) userSettings.lang = parsed.lang;
+      if (parsed.modelCapacity === "7" || parsed.modelCapacity === "9" || parsed.modelCapacity === "12") {
+        userSettings.modelCapacity = parsed.modelCapacity;
+      }
       if (parsed.curveControl === "inlet" || parsed.curveControl === "outlet") {
         userSettings.curveControl = parsed.curveControl;
+      }
+      if (parsed.hydronicTopology === "direct" || parsed.hydronicTopology === "serial" || parsed.hydronicTopology === "parallel") {
+        userSettings.hydronicTopology = parsed.hydronicTopology;
       }
       if (typeof parsed.dhwOverrideEnabled === "boolean") {
         userSettings.dhwOverrideEnabled = parsed.dhwOverrideEnabled;
@@ -37,6 +57,13 @@ function loadUserSettings() {
       if (!isNaN(parseFloat(parsed.dhwOverrideTemp))) {
         userSettings.dhwOverrideTemp = Math.min(65, Math.max(35, parseFloat(parsed.dhwOverrideTemp)));
       }
+      Object.keys(CURVE_PARAM_META).forEach((k) => {
+        const meta = CURVE_PARAM_META[k];
+        const v = parseInt(parsed[k], 10);
+        if (!isNaN(v)) {
+          userSettings[k] = Math.min(meta.max, Math.max(meta.min, v));
+        }
+      });
     }
   } catch (e) {}
 }
@@ -52,7 +79,9 @@ function saveUserSettings() {
 // =========================================================================
 const I18N = {
   en: {
-    brandSub: "Direct Injection Hydronic Topology • Elfin EW11 Gateway",
+    brandSub_direct: "Direct Injection Hydronic Topology • Modbus TCP Gateway",
+    brandSub_serial: "Serial Buffer Hydronic Topology • Modbus TCP Gateway",
+    brandSub_parallel: "Parallel Buffer Hydronic Topology • Modbus TCP Gateway",
     connLive: "LIVE HASS CONNECTED",
     connDemo: "DEMO PREVIEW MODE",
     sysStatus: "System Status:",
@@ -149,7 +178,12 @@ const I18N = {
     svgBoilerTitle: "200L DHW Hot Water Tank",
     svgBoilerCharging: "CHARGING NOW 🔥",
     svgBoilerDisabled: "Disabled",
-    svgSlabTitle: "Underfloor Heating (Direct CH)",
+    svgSlabTitle_direct: "Underfloor Heating (Direct CH)",
+    svgSlabTitle_serial: "Underfloor Heating (Serial Buffer)",
+    svgSlabTitle_parallel: "Underfloor Heating (Parallel Buffer)",
+    svgBufSerial: "SERIAL",
+    svgBufParallel: "PARALLEL",
+    svgBufSub: "BUFFER",
     svgSlabOutput: "Output:",
     stripPressure: "Water Pressure (24h chart)",
     stripThermal: "Thermal Output (24h chart)",
@@ -204,14 +238,31 @@ const I18N = {
     cfgTitle: "⚙️ Dashboard Configuration",
     cfgLangTitle: "🌐 Language",
     cfgLangDesc: "Select the display language for the dashboard (Default: English).",
+    cfgCapTitle: "⚡ Heat Pump Model (Capacity)",
+    cfgCapDesc: "Select your LG Therma V R290 model capacity. Calibrates compressor electrical power estimation, flow scaling, and dashboard labels.",
     cfgCurveTitle: "📈 Heating Curve Control (Stooklijn Sturing)",
     cfgCurveDesc: "Choose whether the heating curve controls Return/Inlet water (EWT) or Supply/Outlet water (LWT). Also updates the hysteresis difference in the Water Temp & ΔT chart.",
     cfgCurveInlet: "Inlet / Return (EWT)",
     cfgCurveOutlet: "Outlet / Supply (LWT)",
+    cfgTopoTitle: "🛢️ Hydronic System Setup (Buffer Configuration)",
+    cfgTopoDesc: "Select your physical CH installation topology. Updates the live animated hydronic schematic and header.",
+    cfgTopoDirect: "Direct Heating",
+    cfgTopoSerial: "Serial Buffer",
+    cfgTopoParallel: "Parallel Buffer",
     cfgDhwTitle: "🚿 DHW Target Temperature Overrule",
     cfgDhwDesc: "Use the automatic Modbus sensor value or manually overrule the DHW (SWW) target temperature.",
     cfgDhwAuto: "Auto (Sensor)",
     cfgDhwManual: "Overrule (Manual)",
+    cfgCurveParamsTitle: "🎛️ Heating Curve Parameters (Stooklijn)",
+    cfgCurveParamsDesc: "Set the axis values to match the installer menu of the LG thermostat. Stored in Home Assistant entities across all devices.",
+    cfgColdTitle: "❄️ Design Temperature (Cold)",
+    cfgColdSub: "Outdoor temperature vs. required water temp (e.g. -10°C outdoor = 35°C water)",
+    cfgMildTitle: "🌤️ Footpoint (Mild)",
+    cfgMildSub: "Outdoor temperature vs. required water temp (e.g. 15°C outdoor = 25°C water)",
+    cfgOatLow: "Outdoor (Low)",
+    cfgLwtHigh: "Water (Max)",
+    cfgOatHigh: "Outdoor (High)",
+    cfgLwtLow: "Water (Min)",
 
     // Confirm Prompts
     confirmPower: "⚠️ ARE YOU SURE?\n\nDo you really want to turn the heat pump ON or OFF?",
@@ -236,7 +287,9 @@ const I18N = {
   },
 
   nl: {
-    brandSub: "Direct Injection Hydronic Topology • Elfin EW11 Gateway",
+    brandSub_direct: "Directe Afgifte Hydraulisch Schema • Modbus TCP Gateway",
+    brandSub_serial: "Buffervat in Serie Hydraulisch Schema • Modbus TCP Gateway",
+    brandSub_parallel: "Parallel Buffervat Hydraulisch Schema • Modbus TCP Gateway",
     connLive: "LIVE HASS VERBONDEN",
     connDemo: "DEMO PREVIEW MODUS",
     sysStatus: "Systeemstatus:",
@@ -325,7 +378,12 @@ const I18N = {
     svgBoilerTitle: "200L SWW Tapwaterboiler",
     svgBoilerCharging: "NU LADEN 🔥",
     svgBoilerDisabled: "Vrijgave Uit",
-    svgSlabTitle: "Vloerverwarming (Direct CV)",
+    svgSlabTitle_direct: "Vloerverwarming (Direct CV)",
+    svgSlabTitle_serial: "Vloerverwarming (Serie Buffer)",
+    svgSlabTitle_parallel: "Vloerverwarming (Parallel Buffer)",
+    svgBufSerial: "SERIE",
+    svgBufParallel: "PARALLEL",
+    svgBufSub: "BUFFER",
     svgSlabOutput: "Afgifte:",
     stripPressure: "Waterdruk (24u grafiek)",
     stripThermal: "Thermisch Vermogen (24u grafiek)",
@@ -376,14 +434,31 @@ const I18N = {
     cfgTitle: "⚙️ Dashboard Instellingen",
     cfgLangTitle: "🌐 Taal / Language",
     cfgLangDesc: "Kies de weergavetaal voor het dashboard (Standaard: Engels).",
+    cfgCapTitle: "⚡ Warmtepomp Model (Vermogen)",
+    cfgCapDesc: "Kies het vermogen van jouw LG Therma V R290 (7 kW, 9 kW of 12 kW). Kalibreert de elektrische vermogensberekening, debietschaal en labels.",
     cfgCurveTitle: "📈 Stooklijn Sturing (Inlaat of Uitlaat)",
     cfgCurveDesc: "Kies of de stooklijn stuurt op Retour/Inlaatwater (EWT) of Aanvoer/Uitlaatwater (LWT). Dit past ook het berekende hysterese-verschil in de Watertemp & ΔT grafiek aan.",
     cfgCurveInlet: "Inlaat / Retour (EWT)",
     cfgCurveOutlet: "Uitlaat / Aanvoer (LWT)",
+    cfgTopoTitle: "🛢️ Hydraulische Opstelling (Buffervat Configuratie)",
+    cfgTopoDesc: "Kies de fysieke opstelling van je CV-installatie. Past direct het live geanimeerde hydraulische schema aan.",
+    cfgTopoDirect: "Directe Afgifte",
+    cfgTopoSerial: "Serie Buffervat",
+    cfgTopoParallel: "Parallel Buffervat",
     cfgDhwTitle: "🚿 SWW Doeltemperatuur Overrulen",
     cfgDhwDesc: "Gebruik de automatische Modbus-sensorwaarde of overschrijf handmatig de ingestelde SWW-doeltemperatuur.",
     cfgDhwAuto: "Auto (Sensor)",
     cfgDhwManual: "Overrulen (Handmatig)",
+    cfgCurveParamsTitle: "🎛️ LG Therma V Stooklijn Configuratie",
+    cfgCurveParamsDesc: "Stel de as-waarden in zodat ze exact overeenkomen met het installateursmenu van de LG thermostaat. Wordt opgeslagen in Home Assistant entiteiten voor alle apparaten.",
+    cfgColdTitle: "❄️ Ontwerptemperatuur (Koud)",
+    cfgColdSub: "Buitentemperatuur vs. benodigde aanvoer (bijv. -10°C buiten = 35°C aanvoer)",
+    cfgMildTitle: "🌤️ Voetpunt (Mild)",
+    cfgMildSub: "Buitentemperatuur vs. benodigde aanvoer (bijv. 15°C buiten = 25°C aanvoer)",
+    cfgOatLow: "Buiten (Laag)",
+    cfgLwtHigh: "Aanvoer (Max)",
+    cfgOatHigh: "Buiten (Hoog)",
+    cfgLwtLow: "Aanvoer (Min)",
 
     confirmPower: "⚠️ WEET JE HET ZEKER?\n\nWil je de warmtepomp daadwerkelijk aan- of uitzetten?",
     confirmDhw: "⚠️ WEET JE HET ZEKER?\n\nWil je de vrijgave voor het maken van warm tapwater wijzigen?",
@@ -406,7 +481,9 @@ const I18N = {
   },
 
   de: {
-    brandSub: "Direktinjektions-Hydronik • Elfin EW11 Gateway",
+    brandSub_direct: "Direktheizkreis-Hydronik • Modbus TCP Gateway",
+    brandSub_serial: "Reihenpufferspeicher-Hydronik • Modbus TCP Gateway",
+    brandSub_parallel: "Parallelpufferspeicher-Hydronik • Modbus TCP Gateway",
     connLive: "LIVE HASS VERBUNDEN",
     connDemo: "DEMO-VORSCHAUMODUS",
     sysStatus: "Systemstatus:",
@@ -495,7 +572,12 @@ const I18N = {
     svgBoilerTitle: "200L Warmwasserspeicher",
     svgBoilerCharging: "LÄDT JETZT 🔥",
     svgBoilerDisabled: "Freigabe Aus",
-    svgSlabTitle: "Fußbodenheizung (Direkt HZ)",
+    svgSlabTitle_direct: "Fußbodenheizung (Direkt HZ)",
+    svgSlabTitle_serial: "Fußbodenheizung (Reihenpuffer)",
+    svgSlabTitle_parallel: "Fußbodenheizung (Parallelpuffer)",
+    svgBufSerial: "REIHEN",
+    svgBufParallel: "PARALLEL",
+    svgBufSub: "PUFFER",
     svgSlabOutput: "Abgabe:",
     stripPressure: "Wasserdruck (24h Diagramm)",
     stripThermal: "Thermische Leistung (24h)",
@@ -546,14 +628,31 @@ const I18N = {
     cfgTitle: "⚙️ Dashboard-Konfiguration",
     cfgLangTitle: "🌐 Sprache / Language",
     cfgLangDesc: "Wählen Sie die Anzeigesprache für das Dashboard (Standard: Englisch).",
+    cfgCapTitle: "⚡ Wärmepumpen-Modell (Leistung)",
+    cfgCapDesc: "Wählen Sie die Leistung Ihrer LG Therma V R290 (7 kW, 9 kW oder 12 kW). Kalibriert die elektrische Leistungsberechnung und Durchflussskalierung.",
     cfgCurveTitle: "📈 Heizkurven-Regelung (Rücklauf oder Vorlauf)",
     cfgCurveDesc: "Wählen Sie, ob die Heizkurve nach Rücklaufwasser (EWT) oder Vorlaufwasser (LWT) regelt. Passt auch die Hysterese-Differenz im Wassertemp & ΔT Diagramm an.",
     cfgCurveInlet: "Einlass / Rücklauf (EWT)",
     cfgCurveOutlet: "Auslass / Vorlauf (LWT)",
+    cfgTopoTitle: "🛢️ Hydraulik-Aufbau (Pufferspeicher)",
+    cfgTopoDesc: "Wählen Sie das physische Hydraulikschema Ihrer Heizungsanlage. Aktualisiert das animierte Live-Schema.",
+    cfgTopoDirect: "Direktheizkreis",
+    cfgTopoSerial: "Reihenpuffer",
+    cfgTopoParallel: "Parallelpuffer",
     cfgDhwTitle: "🚿 WW-Solltemperatur Überschreiben",
     cfgDhwDesc: "Automatischen Modbus-Sensorwert verwenden oder die WW-Solltemperatur manuell überschreiben.",
     cfgDhwAuto: "Auto (Sensor)",
     cfgDhwManual: "Überschreiben (Manuell)",
+    cfgCurveParamsTitle: "🎛️ LG Therma V Heizkurven-Parameter",
+    cfgCurveParamsDesc: "Stellen Sie die Achsenwerte passend zum Installateurmenü des LG-Thermostats ein. Wird geräteübergreifend in Home Assistant Entitäten gespeichert.",
+    cfgColdTitle: "❄️ Auslegungstemperatur (Kalt)",
+    cfgColdSub: "Außentemperatur vs. erforderliche Wassertemp. (z.B. -10°C außen = 35°C Wasser)",
+    cfgMildTitle: "🌤️ Fußpunkt (Mild)",
+    cfgMildSub: "Außentemperatur vs. erforderliche Wassertemp. (z.B. 15°C außen = 25°C Wasser)",
+    cfgOatLow: "Außen (Tief)",
+    cfgLwtHigh: "Vorlauf (Max)",
+    cfgOatHigh: "Außen (Hoch)",
+    cfgLwtLow: "Vorlauf (Min)",
 
     confirmPower: "⚠️ SIND SIE SICHER?\n\nMöchten Sie die Wärmepumpe wirklich EIN- oder AUSSCHALTEN?",
     confirmDhw: "⚠️ SIND SIE SICHER?\n\nMöchten Sie die Warmwasser-Freigabe wirklich umschalten?",
@@ -576,7 +675,9 @@ const I18N = {
   },
 
   fr: {
-    brandSub: "Topologie Hydronique à Injection Directe • Passerelle Elfin EW11",
+    brandSub_direct: "Topologie Hydronique Directe • Passerelle Modbus TCP",
+    brandSub_serial: "Topologie Ballon Tampon Série • Passerelle Modbus TCP",
+    brandSub_parallel: "Topologie Ballon Tampon Parallèle • Passerelle Modbus TCP",
     connLive: "HASS CONNECTÉ EN DIRECT",
     connDemo: "MODE APERÇU DÉMO",
     sysStatus: "État du système :",
@@ -665,7 +766,12 @@ const I18N = {
     svgBoilerTitle: "Ballon d'Eau Chaude ECS 200L",
     svgBoilerCharging: "EN CHARGE 🔥",
     svgBoilerDisabled: "Désactivé",
-    svgSlabTitle: "Plancher Chauffant (CH Direct)",
+    svgSlabTitle_direct: "Plancher Chauffant (CH Direct)",
+    svgSlabTitle_serial: "Plancher Chauffant (Tampon Série)",
+    svgSlabTitle_parallel: "Plancher Chauffant (Tampon Parallèle)",
+    svgBufSerial: "SÉRIE",
+    svgBufParallel: "PARALLÈLE",
+    svgBufSub: "TAMPON",
     svgSlabOutput: "Émission :",
     stripPressure: "Pression d'Eau (graph. 24h)",
     stripThermal: "Puissance Thermique (24h)",
@@ -716,14 +822,31 @@ const I18N = {
     cfgTitle: "⚙️ Configuration du Tableau de Bord",
     cfgLangTitle: "🌐 Langue / Language",
     cfgLangDesc: "Sélectionnez la langue d'affichage du tableau de bord (Par défaut : Anglais).",
+    cfgCapTitle: "⚡ Modèle de Pompe à Chaleur (Puissance)",
+    cfgCapDesc: "Sélectionnez la puissance de votre LG Therma V R290 (7 kW, 9 kW ou 12 kW). Calibre le calcul électrique et l'échelle de débit.",
     cfgCurveTitle: "📈 Régulation Loi d'Eau (Entrée ou Sortie)",
     cfgCurveDesc: "Choisissez si la loi d'eau régule sur l'eau de Retour/Entrée (EWT) ou de Départ/Sortie (LWT). Met également à jour l'écart d'hystérésis dans le graphique Temp. Eau & ΔT.",
     cfgCurveInlet: "Entrée / Retour (EWT)",
     cfgCurveOutlet: "Sortie / Départ (LWT)",
+    cfgTopoTitle: "🛢️ Configuration Hydraulique (Ballon Tampon)",
+    cfgTopoDesc: "Sélectionnez le schéma hydraulique de votre installation. Met à jour le schéma animé en direct.",
+    cfgTopoDirect: "Chauffage Direct",
+    cfgTopoSerial: "Tampon en Série",
+    cfgTopoParallel: "Tampon Parallèle",
     cfgDhwTitle: "🚿 Forçage Température Cible ECS",
     cfgDhwDesc: "Utiliser la sonde Modbus automatique ou définir manuellement la température cible ECS.",
     cfgDhwAuto: "Auto (Sonde)",
     cfgDhwManual: "Forcer (Manuel)",
+    cfgCurveParamsTitle: "🎛️ Paramètres de la Loi d'Eau LG Therma V",
+    cfgCurveParamsDesc: "Réglez les valeurs des axes pour correspondre au menu installateur du thermostat LG. Enregistré dans les entités Home Assistant sur tous vos appareils.",
+    cfgColdTitle: "❄️ Température de Base (Froid)",
+    cfgColdSub: "Température extérieure vs. eau requise (ex. -10°C ext. = 35°C eau)",
+    cfgMildTitle: "🌤️ Point de Pied (Doux)",
+    cfgMildSub: "Température extérieure vs. eau requise (ex. 15°C ext. = 25°C eau)",
+    cfgOatLow: "Extérieur (Bas)",
+    cfgLwtHigh: "Départ (Max)",
+    cfgOatHigh: "Extérieur (Haut)",
+    cfgLwtLow: "Départ (Min)",
 
     confirmPower: "⚠️ ÊTES-VOUS SÛR ?\n\nVoulez-vous vraiment allumer ou éteindre la pompe à chaleur ?",
     confirmDhw: "⚠️ ÊTES-VOUS SÛR ?\n\nVoulez-vous vraiment modifier l'autorisation de chauffe du ballon ECS ?",
@@ -746,7 +869,9 @@ const I18N = {
   },
 
   es: {
-    brandSub: "Topología Hidrónica de Inyección Directa • Pasarela Elfin EW11",
+    brandSub_direct: "Topología Hidrónica Directa • Pasarela Modbus TCP",
+    brandSub_serial: "Topología Depósito de Inercia en Serie • Pasarela Modbus TCP",
+    brandSub_parallel: "Topología Depósito de Inercia en Paralelo • Pasarela Modbus TCP",
     connLive: "HASS CONECTADO EN VIVO",
     connDemo: "MODO VISTA PREVIA DEMO",
     sysStatus: "Estado del sistema:",
@@ -835,7 +960,12 @@ const I18N = {
     svgBoilerTitle: "Depósito Agua Caliente ACS 200L",
     svgBoilerCharging: "CARGANDO AHORA 🔥",
     svgBoilerDisabled: "Deshabilitado",
-    svgSlabTitle: "Suelo Radiante (CC Directo)",
+    svgSlabTitle_direct: "Suelo Radiante (CC Directo)",
+    svgSlabTitle_serial: "Suelo Radiante (Inercia Serie)",
+    svgSlabTitle_parallel: "Suelo Radiante (Inercia Paralelo)",
+    svgBufSerial: "SERIE",
+    svgBufParallel: "PARALELO",
+    svgBufSub: "INERCIA",
     svgSlabOutput: "Entrega:",
     stripPressure: "Presión de Agua (gráf. 24h)",
     stripThermal: "Potencia Térmica (gráf. 24h)",
@@ -886,14 +1016,31 @@ const I18N = {
     cfgTitle: "⚙️ Configuración del Panel",
     cfgLangTitle: "🌐 Idioma / Language",
     cfgLangDesc: "Seleccione el idioma de visualización del panel (Predeterminado: Inglés).",
+    cfgCapTitle: "⚡ Modelo de Bomba de Calor (Potencia)",
+    cfgCapDesc: "Seleccione la potencia de su LG Therma V R290 (7 kW, 9 kW o 12 kW). Calibra el cálculo eléctrico y la escala de caudal.",
     cfgCurveTitle: "📈 Control de Curva (Entrada o Salida)",
     cfgCurveDesc: "Elija si la curva de calefacción controla el agua de Retorno/Entrada (EWT) o Impulsión/Salida (LWT). También actualiza la diferencia de histéresis en la gráfica de Temp. Agua y ΔT.",
     cfgCurveInlet: "Entrada / Retorno (EWT)",
     cfgCurveOutlet: "Salida / Impulsión (LWT)",
+    cfgTopoTitle: "🛢️ Esquema Hidrónico (Depósito de Inercia)",
+    cfgTopoDesc: "Seleccione el esquema físico de su instalación. Actualiza el esquema hidrónico animado en vivo.",
+    cfgTopoDirect: "Calefacción Directa",
+    cfgTopoSerial: "Inercia en Serie",
+    cfgTopoParallel: "Inercia en Paralelo",
     cfgDhwTitle: "🚿 Anular Temperatura Objetivo ACS",
     cfgDhwDesc: "Usar el valor automático del sensor Modbus o fijar manualmente la temperatura objetivo de ACS.",
     cfgDhwAuto: "Auto (Sensor)",
     cfgDhwManual: "Anular (Manual)",
+    cfgCurveParamsTitle: "🎛️ Parámetros de la Curva LG Therma V",
+    cfgCurveParamsDesc: "Ajuste los valores de los ejes para que coincidan con el menú de instalador del termostato LG. Guardado en entidades de Home Assistant para todos los dispositivos.",
+    cfgColdTitle: "❄️ Temperatura de Diseño (Frío)",
+    cfgColdSub: "Temperatura exterior vs. agua requerida (ej. -10°C ext. = 35°C agua)",
+    cfgMildTitle: "🌤️ Punto Base (Templado)",
+    cfgMildSub: "Temperatura exterior vs. agua requerida (ej. 15°C ext. = 25°C agua)",
+    cfgOatLow: "Exterior (Bajo)",
+    cfgLwtHigh: "Impulsión (Máx)",
+    cfgOatHigh: "Exterior (Alto)",
+    cfgLwtLow: "Impulsión (Mín)",
 
     confirmPower: "⚠️ ¿ESTÁ SEGURO?\n\n¿Realmente desea ENCENDER o APAGAR la bomba de calor?",
     confirmDhw: "⚠️ ¿ESTÁ SEGURO?\n\n¿Desea cambiar la habilitación de calentamiento del depósito ACS?",
@@ -980,10 +1127,20 @@ function syncSettingsModalUI() {
     if (btn) btn.classList.toggle("active", userSettings.lang === l);
   });
 
+  ["7", "9", "12"].forEach((cap) => {
+    const b = document.getElementById("btnCap_" + cap);
+    if (b) b.classList.toggle("active", (userSettings.modelCapacity || "7") === cap);
+  });
+
   const btnInlet = document.getElementById("btnCurve_inlet");
   const btnOutlet = document.getElementById("btnCurve_outlet");
   if (btnInlet) btnInlet.classList.toggle("active", userSettings.curveControl === "inlet");
   if (btnOutlet) btnOutlet.classList.toggle("active", userSettings.curveControl === "outlet");
+
+  ["direct", "serial", "parallel"].forEach((topo) => {
+    const b = document.getElementById("btnTopo_" + topo);
+    if (b) b.classList.toggle("active", (userSettings.hydronicTopology || "direct") === topo);
+  });
 
   const btnAuto = document.getElementById("btnDhwMode_auto");
   const btnManual = document.getElementById("btnDhwMode_manual");
@@ -998,6 +1155,14 @@ function syncSettingsModalUI() {
 
   const lbl = document.getElementById("dhwOverrideLabel");
   if (lbl) lbl.textContent = userSettings.dhwOverrideTemp.toFixed(1) + " °C";
+
+  Object.keys(CURVE_PARAM_META).forEach((k) => {
+    const val = userSettings[k] !== undefined ? userSettings[k] : CURVE_PARAM_META[k].def;
+    const sEl = document.getElementById("sliderParam_" + k);
+    if (sEl) sEl.value = val;
+    const lEl = document.getElementById("lblParam_" + k);
+    if (lEl) lEl.textContent = val + " °C";
+  });
 }
 
 function applyStaticTranslations() {
@@ -1007,7 +1172,14 @@ function applyStaticTranslations() {
     if (el) el.textContent = t(key);
   };
 
-  setTxt("brandSub", "brandSub");
+  const topo = userSettings.hydronicTopology || "direct";
+  const cap = userSettings.modelCapacity || "7";
+  const brandModelEl = document.getElementById("brandTitleModel");
+  if (brandModelEl) brandModelEl.textContent = `LG Therma V R290 ${cap}kW`;
+  const svgMonoSubEl = document.getElementById("svgMonoblocSub");
+  if (svgMonoSubEl) svgMonoSubEl.textContent = `${cap}kW Monobloc`;
+
+  setTxt("brandSub", "brandSub_" + topo);
   setTxt("lblSysStatus", "sysStatus");
   setTxt("lblDiag", "diagLabel");
   const errCard = document.getElementById("card_error");
@@ -1059,7 +1231,7 @@ function applyStaticTranslations() {
   setTxt("titleSchematic", "titleSchematic");
   setTxt("svgValveTitle", "svgValveTitle");
   setTxt("svgBoilerTitle", "svgBoilerTitle");
-  setTxt("svgSlabTitle", "svgSlabTitle");
+  setTxt("svgSlabTitle", "svgSlabTitle_" + topo);
   setTxt("lblStripPressure", "stripPressure");
   setTxt("lblStripThermal", "stripThermal");
   setTxt("lblStripElec", "stripElec");
@@ -1083,44 +1255,130 @@ function applyStaticTranslations() {
   setTxt("btnCloseSettings", "closeBtn");
   setTxt("cfgLangTitle", "cfgLangTitle");
   setTxt("cfgLangDesc", "cfgLangDesc");
+  setTxt("cfgCapTitle", "cfgCapTitle");
+  setTxt("cfgCapDesc", "cfgCapDesc");
   setTxt("cfgCurveTitle", "cfgCurveTitle");
   setTxt("cfgCurveDesc", "cfgCurveDesc");
   setTxt("btnCurve_inlet", "cfgCurveInlet");
   setTxt("btnCurve_outlet", "cfgCurveOutlet");
+  setTxt("cfgTopoTitle", "cfgTopoTitle");
+  setTxt("cfgTopoDesc", "cfgTopoDesc");
+  setTxt("btnTopo_direct", "cfgTopoDirect");
+  setTxt("btnTopo_serial", "cfgTopoSerial");
+  setTxt("btnTopo_parallel", "cfgTopoParallel");
   setTxt("cfgDhwTitle", "cfgDhwTitle");
   setTxt("cfgDhwDesc", "cfgDhwDesc");
   setTxt("btnDhwMode_auto", "cfgDhwAuto");
   setTxt("btnDhwMode_manual", "cfgDhwManual");
+  setTxt("cfgCurveParamsTitle", "cfgCurveParamsTitle");
+  setTxt("cfgCurveParamsDesc", "cfgCurveParamsDesc");
+  setTxt("cfgColdTitle", "cfgColdTitle");
+  setTxt("cfgColdSub", "cfgColdSub");
+  setTxt("cfgMildTitle", "cfgMildTitle");
+  setTxt("cfgMildSub", "cfgMildSub");
+  setTxt("cfgOatLow", "cfgOatLow");
+  setTxt("cfgLwtHigh", "cfgLwtHigh");
+  setTxt("cfgOatHigh", "cfgOatHigh");
+  setTxt("cfgLwtLow", "cfgLwtLow");
 }
 
 function setLanguage(lang) {
   if (!I18N[lang]) return;
+  lastLocalSettingWriteTs = Date.now();
   userSettings.lang = lang;
   saveUserSettings();
   syncSettingsModalUI();
   applyStaticTranslations();
+  const hass = getHass();
+  if (hass) {
+    try {
+      hass.callService("input_select", "select_option", {
+        entity_id: "input_select.lg_wp_dashboard_taal",
+        option: lang
+      });
+    } catch (e) {}
+  }
+  syncFromHass();
+}
+
+function setModelCapacity(cap) {
+  const c = String(cap);
+  if (c !== "7" && c !== "9" && c !== "12") return;
+  lastLocalSettingWriteTs = Date.now();
+  userSettings.modelCapacity = c;
+  saveUserSettings();
+  syncSettingsModalUI();
+  applyStaticTranslations();
+  const hass = getHass();
+  if (hass) {
+    try {
+      hass.callService("input_select", "select_option", {
+        entity_id: "input_select.lg_wp_vermogen_model",
+        option: c
+      });
+    } catch (e) {}
+  }
   syncFromHass();
 }
 
 function setCurveControlMode(mode) {
   if (mode !== "inlet" && mode !== "outlet") return;
+  lastLocalSettingWriteTs = Date.now();
   userSettings.curveControl = mode;
   saveUserSettings();
   syncSettingsModalUI();
   applyStaticTranslations();
+  const hass = getHass();
+  if (hass) {
+    try {
+      hass.callService("input_select", "select_option", {
+        entity_id: "input_select.lg_wp_stooklijn_sturing",
+        option: mode
+      });
+    } catch (e) {}
+  }
+  syncFromHass();
+}
+
+function setHydronicTopology(topo) {
+  if (topo !== "direct" && topo !== "serial" && topo !== "parallel") return;
+  lastLocalSettingWriteTs = Date.now();
+  userSettings.hydronicTopology = topo;
+  saveUserSettings();
+  syncSettingsModalUI();
+  applyStaticTranslations();
+  const hass = getHass();
+  if (hass) {
+    try {
+      hass.callService("input_select", "select_option", {
+        entity_id: "input_select.lg_wp_hydraulisch_schema",
+        option: topo
+      });
+    } catch (e) {}
+  }
   syncFromHass();
 }
 
 function setDhwOverrideMode(enabled) {
+  lastLocalSettingWriteTs = Date.now();
   userSettings.dhwOverrideEnabled = Boolean(enabled);
   saveUserSettings();
   syncSettingsModalUI();
+  const hass = getHass();
+  if (hass) {
+    try {
+      hass.callService("input_boolean", userSettings.dhwOverrideEnabled ? "turn_on" : "turn_off", {
+        entity_id: "input_boolean.lg_wp_sww_setpoint_overrule"
+      });
+    } catch (e) {}
+  }
   syncFromHass();
 }
 
 function updateDhwOverrideTemp(val) {
   const num = parseFloat(val);
   if (isNaN(num)) return;
+  lastLocalSettingWriteTs = Date.now();
   userSettings.dhwOverrideTemp = Math.min(65, Math.max(35, Math.round(num * 2) / 2));
   userSettings.dhwOverrideEnabled = true;
   saveUserSettings();
@@ -1132,6 +1390,9 @@ function updateDhwOverrideTemp(val) {
         entity_id: "input_number.lg_wp_sww_setpoint_input",
         value: userSettings.dhwOverrideTemp
       });
+      hass.callService("input_boolean", "turn_on", {
+        entity_id: "input_boolean.lg_wp_sww_setpoint_overrule"
+      });
     } catch (e) {}
   }
   syncFromHass();
@@ -1139,6 +1400,104 @@ function updateDhwOverrideTemp(val) {
 
 function stepDhwOverrideTemp(delta) {
   updateDhwOverrideTemp(userSettings.dhwOverrideTemp + delta);
+}
+
+function updateCurveParam(paramKey, val) {
+  const meta = CURVE_PARAM_META[paramKey];
+  if (!meta) return;
+  const num = parseInt(val, 10);
+  if (isNaN(num)) return;
+  lastLocalSettingWriteTs = Date.now();
+  const clamped = Math.min(meta.max, Math.max(meta.min, num));
+  userSettings[paramKey] = clamped;
+  currentState[paramKey] = clamped;
+  saveUserSettings();
+  syncSettingsModalUI();
+  const hass = getHass();
+  if (hass) {
+    try {
+      hass.callService("input_number", "set_value", {
+        entity_id: meta.entity,
+        value: clamped
+      });
+    } catch (e) {}
+  }
+  syncFromHass();
+}
+
+function stepCurveParam(paramKey, delta) {
+  const meta = CURVE_PARAM_META[paramKey];
+  if (!meta) return;
+  const cur = userSettings[paramKey] !== undefined ? userSettings[paramKey] : meta.def;
+  updateCurveParam(paramKey, cur + delta);
+}
+
+function syncSettingsFromHassEntities(hass) {
+  if (!hass || !hass.states) return;
+  if (Date.now() - lastLocalSettingWriteTs < 2500) return;
+
+  let changed = false;
+  let needStaticRefresh = false;
+
+  const haLang = readStr(hass, "input_select.lg_wp_dashboard_taal", "");
+  if (haLang && I18N[haLang] && haLang !== userSettings.lang) {
+    userSettings.lang = haLang;
+    changed = true;
+    needStaticRefresh = true;
+  }
+
+  const haCap = readStr(hass, "input_select.lg_wp_vermogen_model", "");
+  if ((haCap === "7" || haCap === "9" || haCap === "12") && haCap !== userSettings.modelCapacity) {
+    userSettings.modelCapacity = haCap;
+    changed = true;
+    needStaticRefresh = true;
+  }
+
+  const haCurveMode = readStr(hass, "input_select.lg_wp_stooklijn_sturing", "");
+  if ((haCurveMode === "inlet" || haCurveMode === "outlet") && haCurveMode !== userSettings.curveControl) {
+    userSettings.curveControl = haCurveMode;
+    changed = true;
+    needStaticRefresh = true;
+  }
+
+  const haTopo = readStr(hass, "input_select.lg_wp_hydraulisch_schema", "");
+  if ((haTopo === "direct" || haTopo === "serial" || haTopo === "parallel") && haTopo !== userSettings.hydronicTopology) {
+    userSettings.hydronicTopology = haTopo;
+    changed = true;
+    needStaticRefresh = true;
+  }
+
+  if (hass.states["input_boolean.lg_wp_sww_setpoint_overrule"]) {
+    const haOverrule = readStr(hass, "input_boolean.lg_wp_sww_setpoint_overrule", "off") === "on";
+    if (haOverrule !== userSettings.dhwOverrideEnabled) {
+      userSettings.dhwOverrideEnabled = haOverrule;
+      changed = true;
+    }
+  }
+
+  if (hass.states["input_number.lg_wp_sww_setpoint_input"]) {
+    const haDhwTemp = readNum(hass, "input_number.lg_wp_sww_setpoint_input", userSettings.dhwOverrideTemp);
+    const clampedDhw = Math.min(65, Math.max(35, Math.round(haDhwTemp * 2) / 2));
+    if (Math.abs(clampedDhw - userSettings.dhwOverrideTemp) > 0.05) {
+      userSettings.dhwOverrideTemp = clampedDhw;
+      changed = true;
+    }
+  }
+
+  const haParams = readStooklijnParams(hass);
+  Object.keys(CURVE_PARAM_META).forEach((k) => {
+    const v = Math.round(haParams[k]);
+    if (!isNaN(v) && v !== userSettings[k]) {
+      userSettings[k] = v;
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    saveUserSettings();
+    if (needStaticRefresh) applyStaticTranslations();
+    syncSettingsModalUI();
+  }
 }
 
 // =========================================================================
@@ -1298,10 +1657,18 @@ function readIndoorTemp(hass, fallback) {
 }
 
 function readStooklijnParams(hass) {
-  let oatLow = readNum(hass, "input_number.lg_stooklijn_buiten_laag", -10);
-  let lwtHigh = readNum(hass, "input_number.lg_stooklijn_water_hoog", 35);
-  let oatHigh = readNum(hass, "input_number.lg_stooklijn_buiten_hoog", 15);
-  let lwtLow = readNum(hass, "input_number.lg_stooklijn_water_laag", 25);
+  if (!hass || !hass.states || Date.now() - lastLocalSettingWriteTs < 2500) {
+    return {
+      oatLow: userSettings.oatLow !== undefined ? userSettings.oatLow : -10,
+      lwtHigh: userSettings.lwtHigh !== undefined ? userSettings.lwtHigh : 35,
+      oatHigh: userSettings.oatHigh !== undefined ? userSettings.oatHigh : 15,
+      lwtLow: userSettings.lwtLow !== undefined ? userSettings.lwtLow : 25
+    };
+  }
+  let oatLow = readNum(hass, "input_number.lg_stooklijn_buiten_laag", userSettings.oatLow);
+  let lwtHigh = readNum(hass, "input_number.lg_stooklijn_water_hoog", userSettings.lwtHigh);
+  let oatHigh = readNum(hass, "input_number.lg_stooklijn_buiten_hoog", userSettings.oatHigh);
+  let lwtLow = readNum(hass, "input_number.lg_stooklijn_water_laag", userSettings.lwtLow);
 
   if (oatLow <= -19.5 && lwtHigh <= 25.5 && oatHigh <= 10.5 && lwtLow <= 15.5) {
     oatLow = -10;
@@ -1656,7 +2023,7 @@ const SCOP_PERIOD_CONFIG = {
     thDhw: ["sensor.lg_warmte_alltime_sww", "sensor.lg_warmte_totaal_sww", "sensor.lg_warmte_jaar_sww"],
     elEstCv: ["sensor.lg_stroom_alltime_cv", "sensor.lg_stroom_totaal_cv", "sensor.lg_stroom_jaar_cv"],
     elEstDhw: ["sensor.lg_stroom_alltime_sww", "sensor.lg_stroom_totaal_sww", "sensor.lg_stroom_jaar_sww"],
-    elThinq: ["sensor.lg_thinq_stroom_alltime", "sensor.lg_thinq_stroom_jaar", "sensor.lg_therma_v_7kw_energy_today"]
+    elThinq: ["sensor.lg_thinq_stroom_alltime", "sensor.lg_thinq_stroom_jaar", "sensor.lg_therma_v_7kw_energy_today", "sensor.lg_therma_v_9kw_energy_today", "sensor.lg_therma_v_12kw_energy_today"]
   },
   jaar: {
     lblKey: "period_jaar",
@@ -1664,7 +2031,7 @@ const SCOP_PERIOD_CONFIG = {
     thDhw: ["sensor.lg_warmte_jaar_sww", "sensor.lg_warmte_totaal_sww"],
     elEstCv: ["sensor.lg_stroom_jaar_cv", "sensor.lg_stroom_totaal_cv"],
     elEstDhw: ["sensor.lg_stroom_jaar_sww", "sensor.lg_stroom_totaal_sww"],
-    elThinq: ["sensor.lg_thinq_stroom_jaar", "sensor.lg_thinq_stroom_alltime", "sensor.lg_therma_v_7kw_energy_today"]
+    elThinq: ["sensor.lg_thinq_stroom_jaar", "sensor.lg_thinq_stroom_alltime", "sensor.lg_therma_v_7kw_energy_today", "sensor.lg_therma_v_9kw_energy_today", "sensor.lg_therma_v_12kw_energy_today"]
   },
   maand: {
     lblKey: "period_maand",
@@ -1672,7 +2039,7 @@ const SCOP_PERIOD_CONFIG = {
     thDhw: ["sensor.lg_warmte_maand_sww", "sensor.lg_warmte_jaar_sww"],
     elEstCv: ["sensor.lg_stroom_maand_cv", "sensor.lg_stroom_jaar_cv"],
     elEstDhw: ["sensor.lg_stroom_maand_sww", "sensor.lg_stroom_jaar_sww"],
-    elThinq: ["sensor.lg_thinq_stroom_maand", "sensor.lg_therma_v_7kw_energy_today"]
+    elThinq: ["sensor.lg_thinq_stroom_maand", "sensor.lg_therma_v_7kw_energy_today", "sensor.lg_therma_v_9kw_energy_today", "sensor.lg_therma_v_12kw_energy_today"]
   },
   week: {
     lblKey: "period_week",
@@ -1680,7 +2047,7 @@ const SCOP_PERIOD_CONFIG = {
     thDhw: ["sensor.lg_warmte_week_sww", "sensor.lg_warmte_dag_sww"],
     elEstCv: ["sensor.lg_stroom_week_cv", "sensor.lg_stroom_dag_cv"],
     elEstDhw: ["sensor.lg_stroom_week_sww", "sensor.lg_stroom_dag_sww"],
-    elThinq: ["sensor.lg_thinq_stroom_week", "sensor.lg_therma_v_7kw_energy_today"]
+    elThinq: ["sensor.lg_thinq_stroom_week", "sensor.lg_therma_v_7kw_energy_today", "sensor.lg_therma_v_9kw_energy_today", "sensor.lg_therma_v_12kw_energy_today"]
   },
   dag: {
     lblKey: "period_dag",
@@ -1688,7 +2055,7 @@ const SCOP_PERIOD_CONFIG = {
     thDhw: ["sensor.lg_warmte_dag_sww"],
     elEstCv: ["sensor.lg_stroom_dag_cv"],
     elEstDhw: ["sensor.lg_stroom_dag_sww"],
-    elThinq: ["sensor.lg_thinq_stroom_dag", "sensor.lg_therma_v_7kw_energy_today"]
+    elThinq: ["sensor.lg_thinq_stroom_dag", "sensor.lg_therma_v_7kw_energy_today", "sensor.lg_therma_v_9kw_energy_today", "sensor.lg_therma_v_12kw_energy_today"]
   }
 };
 
@@ -1770,6 +2137,7 @@ function updateScopAndBalanceUI(hass, histDayOpt) {
 
 function syncFromHass() {
   const hass = getHass();
+  syncSettingsFromHassEntities(hass);
   const badge = document.getElementById("connBadge");
 
   if (hass) {
@@ -2001,10 +2369,12 @@ function syncFromHass() {
   document.getElementById("valWeather").textContent = readBuienradarWeather(hass);
 
   // CARD 6: CIRCULATION & SYSTEM PRESSURE
+  const capNum = parseInt(userSettings.modelCapacity || "7", 10);
+  const maxFlowRef = capNum >= 12 ? 38.0 : (capNum >= 9 ? 30.0 : 25.0);
   document.getElementById("valFlow").textContent = flow.toFixed(1);
   document.getElementById("valPressure").textContent = pressure.toFixed(1) + " bar";
   document.getElementById("valMassFlow").textContent = `${Math.round(flow * 60)} ${t("massFlowUnit")}`;
-  document.getElementById("barFlow").style.width = Math.min(100, Math.max(0, (flow / 25.0) * 100)) + "%";
+  document.getElementById("barFlow").style.width = Math.min(100, Math.max(0, (flow / maxFlowRef) * 100)) + "%";
 
   const badgePump = document.getElementById("badgePump");
   if (pumpOn && flowProblemOn) {
@@ -2114,6 +2484,62 @@ function syncFromHass() {
 
   document.getElementById("svgBoilerCoil").setAttribute("stroke", heatBoiler ? "#f59e0b" : "#334155");
   document.getElementById("svgUfhCoil").setAttribute("stroke", heatFloor ? "#f97316" : "#334155");
+
+  // HYDRONIC BUFFER TOPOLOGY IN SVG (DIRECT / SERIAL BUFFER ON COLD LINE / PARALLEL BUFFER)
+  const topo = userSettings.hydronicTopology || "direct";
+  const grpBuffer = document.getElementById("grpBuffer");
+  const grpSecPump = document.getElementById("grpSecPump");
+  if (grpBuffer && grpSecPump) {
+    if (topo === "direct") {
+      grpBuffer.style.display = "none";
+      grpSecPump.style.display = "none";
+    } else if (topo === "serial") {
+      grpBuffer.style.display = "block";
+      grpBuffer.setAttribute("transform", "translate(422, 191)");
+      grpBuffer.classList.toggle("node-dimmed", heatBoiler);
+      const boxBuffer = document.getElementById("boxBuffer");
+      boxBuffer.setAttribute("height", "58");
+      boxBuffer.classList.toggle("node-active-teal", heatFloor);
+      if (!heatFloor) boxBuffer.setAttribute("stroke", "#334155");
+      document.getElementById("svgBufParTop").style.display = "none";
+      document.getElementById("svgBufParBot").style.display = "none";
+      const serCoil = document.getElementById("svgBufSerialCoil");
+      serCoil.style.display = "block";
+      serCoil.setAttribute("stroke", (heatFloor || pumpOn) ? "#38bdf8" : "#334155");
+      const titleEl = document.getElementById("svgBufferTitle");
+      const subEl = document.getElementById("svgBufferSub");
+      titleEl.setAttribute("y", "17");
+      subEl.setAttribute("y", "29");
+      titleEl.textContent = t("svgBufSerial");
+      subEl.textContent = t("svgBufSub");
+      grpSecPump.style.display = "none";
+    } else if (topo === "parallel") {
+      grpBuffer.style.display = "block";
+      grpBuffer.setAttribute("transform", "translate(422, 134)");
+      grpBuffer.classList.toggle("node-dimmed", heatBoiler);
+      const boxBuffer = document.getElementById("boxBuffer");
+      boxBuffer.setAttribute("height", "112");
+      boxBuffer.classList.toggle("node-active-teal", heatFloor);
+      if (!heatFloor) boxBuffer.setAttribute("stroke", "#334155");
+      document.getElementById("svgBufSerialCoil").style.display = "none";
+      const parTop = document.getElementById("svgBufParTop");
+      const parBot = document.getElementById("svgBufParBot");
+      parTop.style.display = "block";
+      parBot.style.display = "block";
+      parTop.setAttribute("stroke", heatFloor ? "#f97316" : "#334155");
+      parBot.setAttribute("stroke", (heatFloor || pumpOn) ? "#38bdf8" : "#334155");
+      const titleEl = document.getElementById("svgBufferTitle");
+      const subEl = document.getElementById("svgBufferSub");
+      titleEl.setAttribute("y", "53");
+      subEl.setAttribute("y", "66");
+      titleEl.textContent = t("svgBufParallel");
+      subEl.textContent = t("svgBufSub");
+      grpSecPump.style.display = "block";
+      grpSecPump.classList.toggle("node-dimmed", heatBoiler);
+      document.getElementById("boxSecPump").setAttribute("stroke", heatFloor ? "#14b8a6" : "#334155");
+      document.getElementById("txtSecPump").setAttribute("fill", heatFloor ? "#5eead4" : "#94a3b8");
+    }
+  }
 
   document.getElementById("flowPrimaryHot").classList.toggle("active", isHeatingActive);
   document.getElementById("flowDhwHot").classList.toggle("active", heatBoiler);

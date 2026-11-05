@@ -7,7 +7,7 @@ automation: !include automations.yaml
 modbus: !include modbus.yaml
 
 # ==========================================================
-# INPUT NUMBERS (For dashboard control of Shift & Setpoints)
+# INPUT HELPERS (For cross-device dashboard settings & Stooklijn)
 # ==========================================================
 input_number:
   lg_wp_stooklijn_shift_input:
@@ -20,9 +20,9 @@ input_number:
 
   lg_wp_sww_setpoint_input:
     name: "LG WP SWW Doeltemperatuur Input"
-    min: 40
-    max: 60
-    step: 1
+    min: 35
+    max: 65
+    step: 0.5
     unit_of_measurement: "°C"
     icon: mdi:water-boiler
 
@@ -54,6 +54,45 @@ input_number:
     step: 1
     unit_of_measurement: "°C"
     icon: mdi:waves-arrow-down
+
+input_select:
+  lg_wp_dashboard_taal:
+    name: "LG WP Dashboard Language"
+    options:
+      - "en"
+      - "nl"
+      - "de"
+      - "fr"
+      - "es"
+    icon: mdi:translate
+
+  lg_wp_stooklijn_sturing:
+    name: "LG WP Stooklijn Sturing"
+    options:
+      - "inlet"
+      - "outlet"
+    icon: mdi:water-sync
+
+  lg_wp_hydraulisch_schema:
+    name: "LG WP Hydraulisch Schema (Buffer)"
+    options:
+      - "direct"
+      - "serial"
+      - "parallel"
+    icon: mdi:storage-tank
+
+  lg_wp_vermogen_model:
+    name: "LG WP Vermogen Model (kW)"
+    options:
+      - "7"
+      - "9"
+      - "12"
+    icon: mdi:heat-pump-outline
+
+input_boolean:
+  lg_wp_sww_setpoint_overrule:
+    name: "LG WP SWW Doeltemperatuur Overrule"
+    icon: mdi:water-boiler-alert
 
 # ==========================================================
 # TEMPLATE SENSORS (Delta T, Thermal Power, Electrical Power, COP & SCOP)
@@ -117,16 +156,21 @@ template:
           {% set buh2 = 3000 if (is_state('binary_sensor.lg_wp_backup_heater_2', 'on') or is_state('binary_sensor.lg_wp_backup_heater_trap_2', 'on')) else 0 %}
           {% set boost = 3000 if is_state('binary_sensor.lg_wp_sww_boost_heater_status', 'on') else 0 %}
 
+          {% set cap_kw = states('input_select.lg_wp_vermogen_model') | int(7) %}
           {% if defrost %}
-            {{ (950 + buh1 + buh2 + boost) | round(0) }}
+            {% set def_w = 1100 if cap_kw >= 12 else 950 %}
+            {{ (def_w + buh1 + buh2 + boost) | round(0) }}
           {% elif comp_on %}
             {% set overhead = 110 if sww else 85 %}
             {% set lift = [lwt - oat, 8.0] | max %}
             {% set carnot = (lwt + 273.15) / (lift + 5.0) %}
-            {% set load_penalty = [ (p_th - 2000.0) / 5000.0, 0.0 ] | max * 0.07 %}
+            {% set base_w = 2600.0 if cap_kw >= 12 else 2000.0 %}
+            {% set span_w = [(cap_kw * 1000.0) - base_w, 5000.0] | max %}
+            {% set load_penalty = [ (p_th - base_w) / span_w, 0.0 ] | max * 0.07 %}
             {% set eff_factor = (0.45 if sww else 0.50) - load_penalty %}
             {% set est_cop = [ [carnot * eff_factor, 1.7] | max, 6.4 ] | min %}
-            {% set comp_el = (p_th / est_cop) if p_th > 500 else 380 %}
+            {% set min_comp_w = 440 if cap_kw >= 12 else 380 %}
+            {% set comp_el = (p_th / est_cop) if p_th > 500 else min_comp_w %}
             {{ (comp_el + overhead + buh1 + buh2 + boost) | round(0) }}
           {% elif (buh1 + buh2 + boost) > 0 %}
             {{ (85 + buh1 + buh2 + boost) | round(0) }}
@@ -241,8 +285,8 @@ template:
         state_class: measurement
         state: >
           {% set th = (states('sensor.lg_warmte_dag_cv') | float(0)) + (states('sensor.lg_warmte_dag_sww') | float(0)) %}
-          {% set raw_thinq = [states('sensor.lg_thinq_stroom_dag') | float(0), states('sensor.lg_therma_v_7kw_energy_today') | float(0)] | max %}
-          {% set uom = (state_attr('sensor.lg_thinq_stroom_dag', 'unit_of_measurement') or state_attr('sensor.lg_therma_v_7kw_energy_today', 'unit_of_measurement') or '') | lower %}
+          {% set raw_thinq = [states('sensor.lg_thinq_stroom_dag') | float(0), states('sensor.lg_therma_v_7kw_energy_today') | float(0), states('sensor.lg_therma_v_9kw_energy_today') | float(0), states('sensor.lg_therma_v_12kw_energy_today') | float(0)] | max %}
+          {% set uom = (state_attr('sensor.lg_thinq_stroom_dag', 'unit_of_measurement') or state_attr('sensor.lg_therma_v_7kw_energy_today', 'unit_of_measurement') or state_attr('sensor.lg_therma_v_9kw_energy_today', 'unit_of_measurement') or state_attr('sensor.lg_therma_v_12kw_energy_today', 'unit_of_measurement') or '') | lower %}
           {% set el_calc = (states('sensor.lg_stroom_dag_cv') | float(0)) + (states('sensor.lg_stroom_dag_sww') | float(0)) %}
           {% set ref_kwh = [th, el_calc, 0.1] | max %}
           {% set el_thinq = (raw_thinq / 1000.0) if (uom == 'wh' or (raw_thinq / ref_kwh > 50)) else raw_thinq %}

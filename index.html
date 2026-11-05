@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LG Therma V R290 Telemetry</title>
-  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="styles.css?v=12" />
 </head>
 <body>
   <!-- FLOATING CHART HOVER TOOLTIP -->
@@ -35,6 +35,21 @@
         </div>
       </div>
 
+      <!-- 2. HEAT PUMP MODEL CAPACITY (7kW / 9kW / 12kW) -->
+      <div class="settings-group">
+        <div class="settings-group-title">
+          <span id="cfgCapTitle">⚡ Heat Pump Model (Capacity)</span>
+        </div>
+        <div class="settings-group-desc" id="cfgCapDesc">
+          Select your LG Therma V R290 model capacity. Calibrates compressor electrical power estimation, flow scaling, and dashboard labels.
+        </div>
+        <div class="seg-group">
+          <button class="seg-btn active" id="btnCap_7" onclick="setModelCapacity('7')">7 kW</button>
+          <button class="seg-btn" id="btnCap_9" onclick="setModelCapacity('9')">9 kW</button>
+          <button class="seg-btn" id="btnCap_12" onclick="setModelCapacity('12')">12 kW</button>
+        </div>
+      </div>
+
       <!-- 2. HEATING CURVE CONTROL REFERENCE (INLET OR OUTLET) -->
       <div class="settings-group">
         <div class="settings-group-title">
@@ -49,7 +64,22 @@
         </div>
       </div>
 
-      <!-- 3. DHW / SWW GOAL TEMPERATURE OVERRULE -->
+      <!-- 3. HYDRONIC SYSTEM TOPOLOGY (DIRECT / SERIAL BUFFER / PARALLEL BUFFER) -->
+      <div class="settings-group">
+        <div class="settings-group-title">
+          <span id="cfgTopoTitle">🛢️ Hydronic System Setup (Buffer Configuration)</span>
+        </div>
+        <div class="settings-group-desc" id="cfgTopoDesc">
+          Select your physical CH installation topology. Updates the live animated hydronic schematic and header.
+        </div>
+        <div class="seg-group">
+          <button class="seg-btn active" id="btnTopo_direct" onclick="setHydronicTopology('direct')">Direct Heating</button>
+          <button class="seg-btn" id="btnTopo_serial" onclick="setHydronicTopology('serial')">Serial Buffer</button>
+          <button class="seg-btn" id="btnTopo_parallel" onclick="setHydronicTopology('parallel')">Parallel Buffer</button>
+        </div>
+      </div>
+
+      <!-- 4. DHW / SWW GOAL TEMPERATURE OVERRULE -->
       <div class="settings-group">
         <div class="settings-group-title">
           <span id="cfgDhwTitle">🚿 DHW Target Temperature Overrule</span>
@@ -76,6 +106,114 @@
           <span class="dhw-override-val" id="dhwOverrideLabel">50.0 °C</span>
         </div>
       </div>
+
+      <!-- 4. STOOKLIJN / HEATING CURVE PARAMETERS -->
+      <div class="settings-group">
+        <div class="settings-group-title">
+          <span id="cfgCurveParamsTitle">🎛️ Heating Curve Parameters (Stooklijn)</span>
+        </div>
+        <div class="settings-group-desc" id="cfgCurveParamsDesc">
+          Set the axis values to match the installer menu of the LG thermostat. Stored in Home Assistant entities across all devices.
+        </div>
+
+        <!-- COLD / DESIGN TEMPERATURE -->
+        <div class="curve-param-subhead">
+          <div class="curve-param-subhead-title" id="cfgColdTitle">❄️ Design Temperature (Cold)</div>
+          <div class="curve-param-subhead-sub" id="cfgColdSub">
+            Outdoor temperature vs. required water temp (e.g. -10°C outdoor = 35°C water)
+          </div>
+        </div>
+        <div class="curve-param-grid">
+          <div class="curve-param-card">
+            <div class="curve-param-top">
+              <span class="curve-param-name">🌡️ <span id="cfgOatLow">Outdoor (Low)</span></span>
+              <span class="curve-param-val" id="lblParam_oatLow" style="color: var(--cyan);">-10 °C</span>
+            </div>
+            <div class="curve-param-slider-row">
+              <button class="btn-step" onclick="stepCurveParam('oatLow', -1)">−</button>
+              <input
+                type="range"
+                id="sliderParam_oatLow"
+                min="-20"
+                max="5"
+                step="1"
+                value="-10"
+                oninput="updateCurveParam('oatLow', this.value)"
+              />
+              <button class="btn-step" onclick="stepCurveParam('oatLow', 1)">+</button>
+            </div>
+          </div>
+
+          <div class="curve-param-card">
+            <div class="curve-param-top">
+              <span class="curve-param-name">🔥 <span id="cfgLwtHigh">Water (Max)</span></span>
+              <span class="curve-param-val" id="lblParam_lwtHigh" style="color: var(--orange);">35 °C</span>
+            </div>
+            <div class="curve-param-slider-row">
+              <button class="btn-step" onclick="stepCurveParam('lwtHigh', -1)">−</button>
+              <input
+                type="range"
+                id="sliderParam_lwtHigh"
+                min="25"
+                max="60"
+                step="1"
+                value="35"
+                oninput="updateCurveParam('lwtHigh', this.value)"
+              />
+              <button class="btn-step" onclick="stepCurveParam('lwtHigh', 1)">+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- MILD / FOOTPOINT -->
+        <div class="curve-param-subhead">
+          <div class="curve-param-subhead-title" id="cfgMildTitle">🌤️ Footpoint (Mild)</div>
+          <div class="curve-param-subhead-sub" id="cfgMildSub">
+            Outdoor temperature vs. required water temp (e.g. 15°C outdoor = 25°C water)
+          </div>
+        </div>
+        <div class="curve-param-grid">
+          <div class="curve-param-card">
+            <div class="curve-param-top">
+              <span class="curve-param-name">🌡️ <span id="cfgOatHigh">Outdoor (High)</span></span>
+              <span class="curve-param-val" id="lblParam_oatHigh" style="color: #7dd3fc;">15 °C</span>
+            </div>
+            <div class="curve-param-slider-row">
+              <button class="btn-step" onclick="stepCurveParam('oatHigh', -1)">−</button>
+              <input
+                type="range"
+                id="sliderParam_oatHigh"
+                min="10"
+                max="25"
+                step="1"
+                value="15"
+                oninput="updateCurveParam('oatHigh', this.value)"
+              />
+              <button class="btn-step" onclick="stepCurveParam('oatHigh', 1)">+</button>
+            </div>
+          </div>
+
+          <div class="curve-param-card">
+            <div class="curve-param-top">
+              <span class="curve-param-name">💧 <span id="cfgLwtLow">Water (Min)</span></span>
+              <span class="curve-param-val" id="lblParam_lwtLow" style="color: var(--amber);">25 °C</span>
+            </div>
+            <div class="curve-param-slider-row">
+              <button class="btn-step" onclick="stepCurveParam('lwtLow', -1)">−</button>
+              <input
+                type="range"
+                id="sliderParam_lwtLow"
+                min="15"
+                max="40"
+                step="1"
+                value="25"
+                oninput="updateCurveParam('lwtLow', this.value)"
+              />
+              <button class="btn-step" onclick="stepCurveParam('lwtLow', 1)">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -86,7 +224,7 @@
         <div class="brand-icon">🔥</div>
         <div>
           <h1>
-            LG Therma V R290 7kW
+            <span id="brandTitleModel">LG Therma V R290 7kW</span>
             <span id="connBadge" class="conn-badge conn-demo">Connecting...</span>
           </h1>
           <p id="brandSub">Direct Injection Hydronic Topology • Elfin EW11 Gateway</p>
@@ -325,26 +463,26 @@
       </div>
 
       <div class="schematic-wrap">
-        <svg class="hydronic-svg" viewBox="0 0 780 280">
+        <svg class="hydronic-svg" viewBox="14 8 752 256">
           <!-- STATIC BACKGROUND PIPES -->
           <path class="pipe-bg" d="M 190 95 L 330 95" />
-          <path class="pipe-bg" d="M 360 75 L 360 50 L 520 50" />
-          <path class="pipe-bg" d="M 360 115 L 360 155 L 520 155" />
-          <path class="pipe-bg" d="M 520 85 L 440 85 L 440 225 L 190 225" />
-          <path class="pipe-bg" d="M 520 225 L 190 225" />
+          <path class="pipe-bg" d="M 360 75 L 360 50 L 535 50" />
+          <path class="pipe-bg" d="M 360 115 L 360 155 L 535 155" />
+          <path class="pipe-bg" d="M 535 85 L 404 85 L 404 225 L 190 225" />
+          <path class="pipe-bg" d="M 535 225 L 190 225" />
 
           <!-- ANIMATED FLOW PIPES -->
           <path id="flowPrimaryHot" class="pipe-flow pipe-hot" d="M 190 95 L 330 95" />
-          <path id="flowDhwHot" class="pipe-flow pipe-dhw" d="M 360 75 L 360 50 L 520 50" />
-          <path id="flowDhwCold" class="pipe-flow pipe-cold" d="M 520 85 L 440 85 L 440 225 L 190 225" />
-          <path id="flowCvHot" class="pipe-flow pipe-hot" d="M 360 115 L 360 155 L 520 155" />
-          <path id="flowCvCold" class="pipe-flow pipe-cold" d="M 520 225 L 190 225" />
+          <path id="flowDhwHot" class="pipe-flow pipe-dhw" d="M 360 75 L 360 50 L 535 50" />
+          <path id="flowDhwCold" class="pipe-flow pipe-cold" d="M 535 85 L 404 85 L 404 225 L 190 225" />
+          <path id="flowCvHot" class="pipe-flow pipe-hot" d="M 360 115 L 360 155 L 535 155" />
+          <path id="flowCvCold" class="pipe-flow pipe-cold" d="M 535 225 L 190 225" />
 
           <!-- NODE 1: LG THERMA V R290 MONOBLOC -->
           <g id="grpMonobloc" class="node-group" transform="translate(20, 55)">
             <rect id="boxMonobloc" class="node-box" width="170" height="190" rx="14" fill="#0f172a" stroke="#334155" stroke-width="2" />
             <text x="85" y="26" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="middle">LG Therma V R290</text>
-            <text x="85" y="43" fill="#94a3b8" font-size="10.5" text-anchor="middle">7kW Monobloc</text>
+            <text id="svgMonoblocSub" x="85" y="43" fill="#94a3b8" font-size="10.5" text-anchor="middle">7kW Monobloc</text>
             <circle id="svgCompRing" cx="85" cy="98" r="32" fill="#1e293b" stroke="#334155" stroke-width="2.2" />
             <text id="svgCompState" x="85" y="96" fill="#64748b" font-size="11.5" font-weight="800" text-anchor="middle">IDLE</text>
             <text id="svgPressure" x="85" y="111" fill="#38bdf8" font-size="10.5" font-weight="700" text-anchor="middle">1.8 bar</text>
@@ -353,13 +491,13 @@
           </g>
 
           <!-- SUPPLY SENSOR PILL -->
-          <g transform="translate(215, 62)">
+          <g transform="translate(212, 62)">
             <rect id="pillSupplyBox" width="96" height="24" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
             <text id="svgSupply" x="48" y="16" fill="#94a3b8" font-size="11.5" font-weight="700" text-anchor="middle">LWT: --°C</text>
           </g>
 
           <!-- RETURN SENSOR PILL -->
-          <g transform="translate(215, 234)">
+          <g transform="translate(205, 234)">
             <rect id="pillReturnBox" width="185" height="24" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
             <text id="svgReturn" x="92" y="16" fill="#94a3b8" font-size="11.5" font-weight="700" text-anchor="middle">EWT: --°C • 0.0 L/min</text>
           </g>
@@ -371,22 +509,40 @@
             <text id="svgValveDir" x="30" y="32" fill="#64748b" font-size="10.5" font-weight="800" text-anchor="middle">IDLE</text>
           </g>
 
-          <!-- NODE 3: 200L DHW BOILER -->
-          <g id="grpBoiler" class="node-group" transform="translate(520, 14)">
-            <rect id="boxBoiler" class="node-box" width="235" height="98" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.8" />
-            <text id="svgBoilerTitle" x="117" y="22" fill="#f8fafc" font-size="12.5" font-weight="700" text-anchor="middle">200L DHW Hot Water Tank</text>
-            <text id="svgBoilerTemp" x="117" y="47" fill="#fbbf24" font-size="19" font-weight="800" text-anchor="middle">-- °C</text>
-            <path id="svgBoilerCoil" d="M 45 62 H 190 A 6 6 0 0 1 190 74 H 45" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
-            <text id="svgBoilerTarget" x="117" y="90" fill="#94a3b8" font-size="10.5" text-anchor="middle">Setpoint: 50.0 °C • Standby</text>
+          <!-- OPTIONAL BUFFER TANK NODE (SERIAL ON COLD LINE OR PARALLEL BRIDGING BOTH, HIDDEN IN DIRECT MODE) -->
+          <g id="grpBuffer" class="node-group" transform="translate(422, 191)" style="display: none;">
+            <rect id="boxBuffer" class="node-box" width="78" height="58" rx="14" fill="#0f172a" stroke="#334155" stroke-width="1.8" />
+            <!-- Parallel Buffer horizontal top/bottom port lines (only visible in parallel mode) -->
+            <path id="svgBufParTop" d="M 10 21 H 68" fill="none" stroke="#334155" stroke-width="2.5" stroke-dasharray="5 5" stroke-linecap="round" style="display: none;" />
+            <path id="svgBufParBot" d="M 10 91 H 68" fill="none" stroke="#334155" stroke-width="2.5" stroke-dasharray="5 5" stroke-linecap="round" style="display: none;" />
+            <!-- Serial Buffer internal cold-line coil wave (only visible in serial mode) -->
+            <path id="svgBufSerialCoil" d="M 10 42 Q 24 34, 39 42 T 68 42" fill="none" stroke="#334155" stroke-width="2.5" stroke-linecap="round" />
+            <text id="svgBufferTitle" x="39" y="17" fill="#f8fafc" font-size="9.5" font-weight="800" text-anchor="middle">SERIAL</text>
+            <text id="svgBufferSub" x="39" y="29" fill="#94a3b8" font-size="8.5" font-weight="700" text-anchor="middle">BUFFER</text>
           </g>
 
-          <!-- NODE 4: DIRECT UNDERFLOOR HEATING SLAB + INDOOR TEMP -->
-          <g id="grpSlab" class="node-group" transform="translate(520, 132)">
-            <rect id="boxSlab" class="node-box" width="235" height="125" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.8" />
-            <text id="svgSlabTitle" x="117" y="22" fill="#f8fafc" font-size="12.5" font-weight="700" text-anchor="middle">Underfloor Heating (Direct CH)</text>
-            <text id="svgIndoor" x="117" y="41" fill="#38bdf8" font-size="11.5" font-weight="700" text-anchor="middle">🏠 Indoor: -- °C</text>
-            <path id="svgUfhCoil" d="M 35 62 H 195 A 8 8 0 0 1 195 78 H 45 A 8 8 0 0 0 45 94 H 200" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
-            <text id="svgSlabInfo" x="117" y="114" fill="#94a3b8" font-size="11.5" font-weight="700" text-anchor="middle">ΔT: 0.00 K • Output: 0.00 kW</text>
+          <!-- SECONDARY PUMP P2 (SHOWN IN PARALLEL BUFFER MODE) -->
+          <g id="grpSecPump" class="node-group" transform="translate(517, 155)" style="display: none;">
+            <circle id="boxSecPump" cx="0" cy="0" r="11" fill="#1e293b" stroke="#334155" stroke-width="1.8" />
+            <text id="txtSecPump" x="0" y="3.5" fill="#94a3b8" font-size="8.5" font-weight="800" text-anchor="middle">P2</text>
+          </g>
+
+          <!-- NODE 3: 200L DHW BOILER -->
+          <g id="grpBoiler" class="node-group" transform="translate(535, 14)">
+            <rect id="boxBoiler" class="node-box" width="225" height="98" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.8" />
+            <text id="svgBoilerTitle" x="112" y="22" fill="#f8fafc" font-size="12.5" font-weight="700" text-anchor="middle">200L DHW Hot Water Tank</text>
+            <text id="svgBoilerTemp" x="112" y="47" fill="#fbbf24" font-size="19" font-weight="800" text-anchor="middle">-- °C</text>
+            <path id="svgBoilerCoil" d="M 40 62 H 185 A 6 6 0 0 1 185 74 H 40" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
+            <text id="svgBoilerTarget" x="112" y="90" fill="#94a3b8" font-size="10.5" text-anchor="middle">Setpoint: 50.0 °C • Standby</text>
+          </g>
+
+          <!-- NODE 4: UNDERFLOOR HEATING SLAB + INDOOR TEMP -->
+          <g id="grpSlab" class="node-group" transform="translate(535, 132)">
+            <rect id="boxSlab" class="node-box" width="225" height="125" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.8" />
+            <text id="svgSlabTitle" x="112" y="22" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Underfloor Heating (Direct CH)</text>
+            <text id="svgIndoor" x="112" y="41" fill="#38bdf8" font-size="11.5" font-weight="700" text-anchor="middle">🏠 Indoor: -- °C</text>
+            <path id="svgUfhCoil" d="M 32 62 H 188 A 8 8 0 0 1 188 78 H 42 A 8 8 0 0 0 42 94 H 193" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
+            <text id="svgSlabInfo" x="112" y="114" fill="#94a3b8" font-size="11.5" font-weight="700" text-anchor="middle">ΔT: 0.00 K • Output: 0.00 kW</text>
           </g>
         </svg>
       </div>
@@ -485,8 +641,8 @@
   </div>
 
   <!-- SCRIPTS IN VOLGORDE VAN AFHANKELIJKHEID -->
-  <script src="error-codes.js?v=8"></script>
-  <script src="charts.js?v=8"></script>
-  <script src="app.js?v=8"></script>
+  <script src="error-codes.js?v=12"></script>
+  <script src="charts.js?v=12"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
