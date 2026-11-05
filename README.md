@@ -5,6 +5,7 @@ Een interactief, realtime **Home Assistant** dashboard voor de **LG Therma V R29
 ---
 
 ## ✨ Functionaliteiten
+<img width="1378" height="1160" alt="image" src="https://github.com/user-attachments/assets/b1f9f328-de08-4f4f-9b9f-bb8acd2964b3" />
 
 - **6 Interactieve KPI-kaarten** (met uitklapbare 24u / 12u / 6u / 1u stap-grafieken):
   1. **Actueel Rendement (COP)** — Live COP, Dag-COP, thermisch vermogen (kW) en elektrisch vermogen (kW).
