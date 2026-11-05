@@ -5,7 +5,6 @@ Een interactief, realtime **Home Assistant** dashboard voor de **LG Therma V R29
 ---
 
 ## ✨ Functionaliteiten
-<img width="1378" height="1160" alt="image" src="https://github.com/user-attachments/assets/b1f9f328-de08-4f4f-9b9f-bb8acd2964b3" />
 
 - **6 Interactieve KPI-kaarten** (met uitklapbare 24u / 12u / 6u / 1u stap-grafieken):
   1. **Actueel Rendement (COP)** — Live COP, Dag-COP, thermisch vermogen (kW) en elektrisch vermogen (kW).
@@ -22,6 +21,10 @@ Een interactief, realtime **Home Assistant** dashboard voor de **LG Therma V R29
 - **Interactieve Stooklijn + Parallel Shift Slider** — Pas direct vanuit het dashboard de stooklijn-offset (`-5 K` t/m `+5 K`) aan.
 - **Ingebouwde LG Therma V CH-Foutcode Database** — Klik op de diagnose-pill bovenin (`CH 00 OK`) om door alle LG CH-foutcodes, oorzaken en oplossingen te zoeken.
 - **Directe Bediening** — Knoppen met bevestigingsbeveiliging voor **WP Aan/Uit**, **SWW Vrijgave** en **Silent Mode**.
+- **⚙️ Configuratiescherm (Tandwiel rechtsboven)** — Stel direct in het dashboard in:
+  - **Taal / Language:** Engels (Standaard), Nederlands, Duits, Frans en Spaans.
+  - **Stooklijn Sturing:** Kies tussen **Inlet / Retour (EWT)** of **Outlet / Aanvoer (LWT)** (past ook direct de berekende hysterese-afwijking in de *Watertemp & ΔT* grafiek aan).
+  - **SWW Doeltemperatuur Overrulen:** Schakel tussen de automatische Modbus-sensor of een handmatig ingestelde SWW-doeltemperatuur (`35 °C – 65 °C`).
 
 ---
 

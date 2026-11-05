@@ -1,14 +1,83 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LG Therma V R290 Telemetry</title>
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=8" />
 </head>
 <body>
   <!-- FLOATING CHART HOVER TOOLTIP -->
   <div id="chartTooltip" class="chart-tooltip"></div>
+
+  <!-- CONFIGURATION MODAL -->
+  <div id="settingsModalBackdrop" class="modal-backdrop" onclick="handleModalBackdropClick(event)">
+    <div class="settings-modal">
+      <div class="settings-header">
+        <h2 id="cfgTitle">⚙️ Dashboard Configuration</h2>
+        <button class="btn-close-drawer" id="btnCloseSettings" onclick="closeSettingsModal()">✕ Close</button>
+      </div>
+
+      <!-- 1. LANGUAGE SELECTION -->
+      <div class="settings-group">
+        <div class="settings-group-title">
+          <span id="cfgLangTitle">🌐 Language</span>
+        </div>
+        <div class="settings-group-desc" id="cfgLangDesc">
+          Select the display language for the dashboard (Default: English).
+        </div>
+        <div class="seg-group">
+          <button class="seg-btn active" id="btnLang_en" onclick="setLanguage('en')">🇬🇧 English</button>
+          <button class="seg-btn" id="btnLang_nl" onclick="setLanguage('nl')">🇳🇱 Nederlands</button>
+          <button class="seg-btn" id="btnLang_de" onclick="setLanguage('de')">🇩🇪 Deutsch</button>
+          <button class="seg-btn" id="btnLang_fr" onclick="setLanguage('fr')">🇫🇷 Français</button>
+          <button class="seg-btn" id="btnLang_es" onclick="setLanguage('es')">🇪🇸 Español</button>
+        </div>
+      </div>
+
+      <!-- 2. HEATING CURVE CONTROL REFERENCE (INLET OR OUTLET) -->
+      <div class="settings-group">
+        <div class="settings-group-title">
+          <span id="cfgCurveTitle">📈 Heating Curve Control (Stooklijn Sturing)</span>
+        </div>
+        <div class="settings-group-desc" id="cfgCurveDesc">
+          Choose whether the heating curve controls Return/Inlet water (EWT) or Supply/Outlet water (LWT). Also updates the hysteresis difference in the Water Temp & ΔT chart.
+        </div>
+        <div class="seg-group">
+          <button class="seg-btn active" id="btnCurve_inlet" onclick="setCurveControlMode('inlet')">Inlet / Return (EWT)</button>
+          <button class="seg-btn" id="btnCurve_outlet" onclick="setCurveControlMode('outlet')">Outlet / Supply (LWT)</button>
+        </div>
+      </div>
+
+      <!-- 3. DHW / SWW GOAL TEMPERATURE OVERRULE -->
+      <div class="settings-group">
+        <div class="settings-group-title">
+          <span id="cfgDhwTitle">🚿 DHW Target Temperature Overrule</span>
+        </div>
+        <div class="settings-group-desc" id="cfgDhwDesc">
+          Use the automatic Modbus sensor value or manually overrule the DHW (SWW) target temperature.
+        </div>
+        <div class="seg-group">
+          <button class="seg-btn active" id="btnDhwMode_auto" onclick="setDhwOverrideMode(false)">Auto (Sensor)</button>
+          <button class="seg-btn" id="btnDhwMode_manual" onclick="setDhwOverrideMode(true)">Overrule (Manual)</button>
+        </div>
+        <div class="dhw-override-controls disabled" id="dhwOverrideRow">
+          <button class="btn-step" onclick="stepDhwOverrideTemp(-0.5)">−</button>
+          <input
+            type="range"
+            id="dhwOverrideSlider"
+            min="35"
+            max="65"
+            step="0.5"
+            value="50"
+            oninput="updateDhwOverrideTemp(this.value)"
+          />
+          <button class="btn-step" onclick="stepDhwOverrideTemp(0.5)">+</button>
+          <span class="dhw-override-val" id="dhwOverrideLabel">50.0 °C</span>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="dashboard">
     <!-- TOP HEADER BAR -->
@@ -20,34 +89,37 @@
             LG Therma V R290 7kW
             <span id="connBadge" class="conn-badge conn-demo">Connecting...</span>
           </h1>
-          <p>Direct Injection Hydronic Topology • Elfin EW11 Gateway</p>
+          <p id="brandSub">Direct Injection Hydronic Topology • Elfin EW11 Gateway</p>
         </div>
       </div>
 
       <div class="topbar-right">
         <div class="pill">
           <span class="pill-dot" id="modeDot"></span>
-          <span class="pill-label">Systeemstatus:</span>
-          <span class="pill-val" id="valMode">Stand-by</span>
+          <span class="pill-label" id="lblSysStatus">System Status:</span>
+          <span class="pill-val" id="valMode">Standby</span>
         </div>
 
         <!-- CLICKABLE ERROR & DIAGNOSTIC PILL NEXT TO SYSTEM STATUS -->
-        <div class="pill pill-clickable" id="card_error" onclick="selectKpiCard('error')" title="Klik voor CH-foutcodeboek & diagnose">
+        <div class="pill pill-clickable" id="card_error" onclick="selectKpiCard('error')" title="Click for CH error code book & diagnostics">
           <span class="pill-dot" id="errDot" style="background: var(--green);"></span>
-          <span class="pill-label">Diagnose:</span>
+          <span class="pill-label" id="lblDiag">Diagnostics:</span>
           <span class="pill-val" id="valError" style="color: var(--green);">CH 00</span>
           <span class="pill-sub" id="valErrorUnit">OK ▾</span>
         </div>
 
         <div class="controls-row">
           <button class="btn-toggle" id="btnPower" onclick="togglePowerSwitch()">
-            ⚡ WP Aan/Uit
+            ⚡ HP On/Off
           </button>
           <button class="btn-toggle" id="btnDhw" onclick="toggleDhwSwitch()">
-            🚿 SWW Vrijgave
+            🚿 DHW Enable
           </button>
           <button class="btn-toggle" id="btnSilent" onclick="toggleSilentSwitch()">
             🌙 Silent Mode
+          </button>
+          <button class="btn-gear" id="btnSettings" onclick="openSettingsModal()" title="Configuration">
+            ⚙️
           </button>
         </div>
       </div>
@@ -58,23 +130,23 @@
       <!-- ROW 1, CARD 1: RENDEMENT -->
       <div class="card kpi-clickable" id="card_cop" onclick="selectKpiCard('cop')">
         <div class="card-header">
-          <span class="card-title">Actueel Rendement</span>
-          <span class="card-badge" id="badgeCop">Stand-by</span>
+          <span class="card-title" id="titleCardCop">Current Efficiency</span>
+          <span class="card-badge" id="badgeCop">Standby</span>
         </div>
         <div class="kpi-main">
           <span id="valCop" style="color: var(--text-muted);">0.00</span>
-          <span class="kpi-unit">COP • Dag: <b id="valCopDay">0.00</b></span>
+          <span class="kpi-unit"><span id="lblCopDayPrefix">COP • Day:</span> <b id="valCopDay">0.00</b></span>
         </div>
         <div class="progress-track">
           <div class="progress-fill" id="barCop" style="width: 0%;"></div>
         </div>
         <div class="kpi-subgrid">
           <div class="kpi-subitem">
-            <span>Thermisch Vermogen</span>
+            <span id="lblSubThermal">Thermal Output</span>
             <strong id="valThermal" style="color: var(--teal);">0.00 kW</strong>
           </div>
           <div class="kpi-subitem">
-            <span>Elektrisch Vermogen</span>
+            <span id="lblSubElec">Electrical Power</span>
             <strong id="valElec" style="color: var(--rose);">0.01 kW</strong>
           </div>
         </div>
@@ -83,8 +155,8 @@
       <!-- ROW 1, CARD 2: WATERTEMP & DELTA T -->
       <div class="card kpi-clickable" id="card_water" onclick="selectKpiCard('water')">
         <div class="card-header">
-          <span class="card-title">Watertemp & ΔT</span>
-          <span class="card-badge" id="badgeTarget">Doel CV: -- °C</span>
+          <span class="card-title" id="titleCardWater">Water Temp & ΔT</span>
+          <span class="card-badge" id="badgeTarget">Target CH: -- °C</span>
         </div>
         <div class="kpi-main">
           <span id="valSupply" style="color: var(--orange);">--°C</span>
@@ -95,11 +167,11 @@
         </div>
         <div class="kpi-subgrid">
           <div class="kpi-subitem">
-            <span>Actuele Delta T (ΔT)</span>
+            <span id="lblSubDeltaT">Current Delta T (ΔT)</span>
             <strong id="valDeltaT" style="color: var(--purple);">0.00 K</strong>
           </div>
           <div class="kpi-subitem">
-            <span id="lblTargetType">Berekend Setpoint CV</span>
+            <span id="lblTargetType">Calculated Setpoint CH</span>
             <strong id="valTargetCv">-- °C</strong>
           </div>
         </div>
@@ -108,8 +180,8 @@
       <!-- ROW 1, CARD 3: 200L TAPWATERBOILER -->
       <div class="card kpi-clickable" id="card_dhw" onclick="selectKpiCard('dhw')">
         <div class="card-header">
-          <span class="card-title">200L Tapwaterboiler</span>
-          <span class="card-badge" id="badgeDhwTop">200 Liter</span>
+          <span class="card-title" id="titleCardDhw">200L DHW Tank</span>
+          <span class="card-badge" id="badgeDhwTop">200 Liters</span>
         </div>
         <div class="kpi-main">
           <span id="valDhwTemp" style="color: var(--amber);">--</span>
@@ -120,12 +192,12 @@
         </div>
         <div class="kpi-subgrid">
           <div class="kpi-subitem">
-            <span>SWW Doeltemperatuur</span>
+            <span id="lblSubDhwTarget">DHW Target Temp</span>
             <strong id="valDhwTarget">50.0 °C</strong>
           </div>
           <div class="kpi-subitem">
-            <span>SWW Status</span>
-            <strong id="valDhwState">Stand-by</strong>
+            <span id="lblSubDhwState">DHW Status</span>
+            <strong id="valDhwState">Standby</strong>
           </div>
         </div>
       </div>
@@ -133,8 +205,8 @@
       <!-- ROW 2, CARD 4: BINNEN -->
       <div class="card kpi-clickable" id="card_indoor" onclick="selectKpiCard('indoor')">
         <div class="card-header">
-          <span class="card-title">Binnen</span>
-          <span class="card-badge" id="badgeIndoor">Woonkamer</span>
+          <span class="card-title" id="titleCardIndoor">Indoor</span>
+          <span class="card-badge" id="badgeIndoor">Living Room</span>
         </div>
         <div class="kpi-main">
           <span id="valIndoor" style="color: var(--teal);">20.5</span>
@@ -145,11 +217,11 @@
         </div>
         <div class="kpi-subgrid">
           <div class="kpi-subitem">
-            <span>Stooklijn Offset</span>
+            <span id="lblSubIndoorShift">Curve Offset</span>
             <strong id="valIndoorShift" style="color: var(--teal);">0 K</strong>
           </div>
           <div class="kpi-subitem">
-            <span>Daggemiddelde</span>
+            <span id="lblSubIndoorAvg">Daily Average</span>
             <strong id="valIndoorAvg">20.5 °C</strong>
           </div>
         </div>
@@ -158,8 +230,8 @@
       <!-- ROW 2, CARD 5: BUITEN -->
       <div class="card kpi-clickable" id="card_outdoor" onclick="selectKpiCard('outdoor')">
         <div class="card-header">
-          <span class="card-title">Buiten</span>
-          <span class="card-badge" id="badgeOutdoor">Weersafhankelijk</span>
+          <span class="card-title" id="titleCardOutdoor">Outdoor</span>
+          <span class="card-badge" id="badgeOutdoor">Weather Compensated</span>
         </div>
         <div class="kpi-main">
           <span id="valOutdoor" style="color: var(--amber);">6.5</span>
@@ -170,12 +242,12 @@
         </div>
         <div class="kpi-subgrid">
           <div class="kpi-subitem">
-            <span>Stooklijn Bereik</span>
-            <strong id="valOutdoorBounds">-10°C tot 15°C</strong>
+            <span id="lblSubOutdoorBounds">Curve Range</span>
+            <strong id="valOutdoorBounds">-10°C to 15°C</strong>
           </div>
           <div class="kpi-subitem">
-            <span>Actueel Weer</span>
-            <strong id="valWeather" style="color: var(--cyan);">⛅ Bewolkt</strong>
+            <span id="lblSubWeather">Current Weather</span>
+            <strong id="valWeather" style="color: var(--cyan);">⛅ Cloudy</strong>
           </div>
         </div>
       </div>
@@ -183,24 +255,24 @@
       <!-- ROW 2, CARD 6: GECONSOLIDEERDE KAART (DIRECTE CIRCULATIE & SYSTEEMDRUK) -->
       <div class="card kpi-clickable" id="card_flow" onclick="selectKpiCard('flow')">
         <div class="card-header">
-          <span class="card-title">Circulatie & Systeemdruk</span>
-          <span class="card-badge" id="badgePump">Pomp Uit</span>
+          <span class="card-title" id="titleCardFlow">Circulation & System Pressure</span>
+          <span class="card-badge" id="badgePump">Pump Off</span>
         </div>
         <div class="kpi-main">
           <span id="valFlow" style="color: var(--cyan);">0.0</span>
-          <span class="kpi-unit">L/min • <b id="valValveText" style="color: var(--text-muted);">Stand-by</b></span>
+          <span class="kpi-unit">L/min • <b id="valValveText" style="color: var(--text-muted);">Standby</b></span>
         </div>
         <div class="progress-track">
           <div class="progress-fill" id="barFlow" style="width: 0%;"></div>
         </div>
         <div class="kpi-subgrid">
           <div class="kpi-subitem">
-            <span>Systeemdruk</span>
+            <span id="lblSubPressure">System Pressure</span>
             <strong id="valPressure" style="color: var(--cyan);">1.8 bar</strong>
           </div>
           <div class="kpi-subitem">
-            <span>Massastroom</span>
-            <strong id="valMassFlow">0 L/u</strong>
+            <span id="lblSubMassFlow">Mass Flow</span>
+            <strong id="valMassFlow">0 L/h</strong>
           </div>
         </div>
       </div>
@@ -209,17 +281,17 @@
       <div id="detailDrawer" class="card detail-drawer">
         <div class="drawer-header-top">
           <div class="drawer-title-wrap">
-            <span class="card-title" id="drawerTitle">Grafiek</span>
+            <span class="card-title" id="drawerTitle">Chart</span>
             <span class="card-badge" id="drawerBadge">Min: -- • Max: --</span>
           </div>
           <div class="drawer-actions">
             <div id="chartRangeControls" class="range-btn-group">
-              <button class="btn-range active" id="btnRange_24" onclick="setChartTimeframe(24)">24u</button>
-              <button class="btn-range" id="btnRange_12" onclick="setChartTimeframe(12)">12u</button>
-              <button class="btn-range" id="btnRange_6" onclick="setChartTimeframe(6)">6u</button>
-              <button class="btn-range" id="btnRange_1" onclick="setChartTimeframe(1)">1u</button>
+              <button class="btn-range active" id="btnRange_24" onclick="setChartTimeframe(24)">24h</button>
+              <button class="btn-range" id="btnRange_12" onclick="setChartTimeframe(12)">12h</button>
+              <button class="btn-range" id="btnRange_6" onclick="setChartTimeframe(6)">6h</button>
+              <button class="btn-range" id="btnRange_1" onclick="setChartTimeframe(1)">1h</button>
             </div>
-            <button class="btn-close-drawer" onclick="closeDrawer()">✕ Sluiten</button>
+            <button class="btn-close-drawer" id="btnCloseDrawer" onclick="closeDrawer()">✕ Close</button>
           </div>
         </div>
 
@@ -236,7 +308,7 @@
               type="text"
               id="errSearchInput"
               class="err-search-input"
-              placeholder="Zoek op foutcode (bijv. CH14, CH32) of trefwoord (debiet, sensor, druk, defrost)..."
+              placeholder="Search error code (e.g. CH14, CH32) or keyword (flow, sensor, pressure, defrost)..."
               oninput="renderErrorDatabase(this.value)"
             />
           </div>
@@ -248,8 +320,8 @@
     <!-- FULL-WIDTH ANIMATED HYDRONIC SCHEMATIC -->
     <section class="card" id="schematicCard">
       <div class="card-header">
-        <span class="card-title">Live Hydraulisch Schema</span>
-        <span class="card-badge" id="schemBadge">Stand-by (Rust)</span>
+        <span class="card-title" id="titleSchematic">Live Hydronic Schematic</span>
+        <span class="card-badge" id="schemBadge">Standby (Idle)</span>
       </div>
 
       <div class="schematic-wrap">
@@ -274,10 +346,10 @@
             <text x="85" y="26" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="middle">LG Therma V R290</text>
             <text x="85" y="43" fill="#94a3b8" font-size="10.5" text-anchor="middle">7kW Monobloc</text>
             <circle id="svgCompRing" cx="85" cy="98" r="32" fill="#1e293b" stroke="#334155" stroke-width="2.2" />
-            <text id="svgCompState" x="85" y="96" fill="#64748b" font-size="11.5" font-weight="800" text-anchor="middle">RUST</text>
+            <text id="svgCompState" x="85" y="96" fill="#64748b" font-size="11.5" font-weight="800" text-anchor="middle">IDLE</text>
             <text id="svgPressure" x="85" y="111" fill="#38bdf8" font-size="10.5" font-weight="700" text-anchor="middle">1.8 bar</text>
             <text id="svgPower" x="85" y="155" fill="#94a3b8" font-size="11.5" font-weight="700" text-anchor="middle">Th: 0.00 kW | El: 0.01 kW</text>
-            <text id="svgOutdoor" x="85" y="175" fill="#94a3b8" font-size="11" text-anchor="middle">Buiten: -- °C</text>
+            <text id="svgOutdoor" x="85" y="175" fill="#94a3b8" font-size="11" text-anchor="middle">Outdoor: -- °C</text>
           </g>
 
           <!-- SUPPLY SENSOR PILL -->
@@ -295,26 +367,26 @@
           <!-- NODE 2: 3-WAY DIVERTER VALVE -->
           <g transform="translate(330, 75)">
             <rect id="boxValve" class="node-box" width="60" height="40" rx="8" fill="#1e293b" stroke="#334155" stroke-width="2" />
-            <text x="30" y="17" fill="#94a3b8" font-size="9.5" font-weight="700" text-anchor="middle">3-WEG</text>
-            <text id="svgValveDir" x="30" y="32" fill="#64748b" font-size="10.5" font-weight="800" text-anchor="middle">RUST</text>
+            <text id="svgValveTitle" x="30" y="17" fill="#94a3b8" font-size="9.5" font-weight="700" text-anchor="middle">3-WAY</text>
+            <text id="svgValveDir" x="30" y="32" fill="#64748b" font-size="10.5" font-weight="800" text-anchor="middle">IDLE</text>
           </g>
 
           <!-- NODE 3: 200L DHW BOILER -->
           <g id="grpBoiler" class="node-group" transform="translate(520, 14)">
             <rect id="boxBoiler" class="node-box" width="235" height="98" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.8" />
-            <text x="117" y="22" fill="#f8fafc" font-size="12.5" font-weight="700" text-anchor="middle">200L SWW Tapwaterboiler</text>
+            <text id="svgBoilerTitle" x="117" y="22" fill="#f8fafc" font-size="12.5" font-weight="700" text-anchor="middle">200L DHW Hot Water Tank</text>
             <text id="svgBoilerTemp" x="117" y="47" fill="#fbbf24" font-size="19" font-weight="800" text-anchor="middle">-- °C</text>
             <path id="svgBoilerCoil" d="M 45 62 H 190 A 6 6 0 0 1 190 74 H 45" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
-            <text id="svgBoilerTarget" x="117" y="90" fill="#94a3b8" font-size="10.5" text-anchor="middle">Setpoint: 50.0 °C • Stand-by</text>
+            <text id="svgBoilerTarget" x="117" y="90" fill="#94a3b8" font-size="10.5" text-anchor="middle">Setpoint: 50.0 °C • Standby</text>
           </g>
 
           <!-- NODE 4: DIRECT UNDERFLOOR HEATING SLAB + INDOOR TEMP -->
           <g id="grpSlab" class="node-group" transform="translate(520, 132)">
             <rect id="boxSlab" class="node-box" width="235" height="125" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.8" />
-            <text x="117" y="22" fill="#f8fafc" font-size="12.5" font-weight="700" text-anchor="middle">Vloerverwarming (Direct CV)</text>
-            <text id="svgIndoor" x="117" y="41" fill="#38bdf8" font-size="11.5" font-weight="700" text-anchor="middle">🏠 Binnentemp: -- °C</text>
+            <text id="svgSlabTitle" x="117" y="22" fill="#f8fafc" font-size="12.5" font-weight="700" text-anchor="middle">Underfloor Heating (Direct CH)</text>
+            <text id="svgIndoor" x="117" y="41" fill="#38bdf8" font-size="11.5" font-weight="700" text-anchor="middle">🏠 Indoor: -- °C</text>
             <path id="svgUfhCoil" d="M 35 62 H 195 A 8 8 0 0 1 195 78 H 45 A 8 8 0 0 0 45 94 H 200" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" />
-            <text id="svgSlabInfo" x="117" y="114" fill="#94a3b8" font-size="11.5" font-weight="700" text-anchor="middle">ΔT: 0.00 K • Afgifte: 0.00 kW</text>
+            <text id="svgSlabInfo" x="117" y="114" fill="#94a3b8" font-size="11.5" font-weight="700" text-anchor="middle">ΔT: 0.00 K • Output: 0.00 kW</text>
           </g>
         </svg>
       </div>
@@ -322,15 +394,15 @@
       <!-- HYDRONIC & SYSTEM TELEMETRY STRIP -->
       <div class="refrig-strip">
         <div class="refrig-box kpi-clickable" id="card_sub_pressure" onclick="selectKpiCard('sub_pressure')">
-          <span>Waterdruk (24u grafiek)</span>
+          <span id="lblStripPressure">Water Pressure (24h chart)</span>
           <strong id="valStripPressure" style="color: var(--cyan);">1.8 bar</strong>
         </div>
         <div class="refrig-box kpi-clickable" id="card_sub_thermal" onclick="selectKpiCard('sub_thermal')">
-          <span>Thermisch Vermogen (24u grafiek)</span>
+          <span id="lblStripThermal">Thermal Output (24h chart)</span>
           <strong id="valStripThermal" style="color: var(--teal);">0.00 kW</strong>
         </div>
         <div class="refrig-box kpi-clickable" id="card_sub_elec" onclick="selectKpiCard('sub_elec')">
-          <span>Elektrisch Verbruik (24u grafiek)</span>
+          <span id="lblStripElec">Electrical Power (24h chart)</span>
           <strong id="valStripElec" style="color: var(--rose);">0.01 kW</strong>
         </div>
       </div>
@@ -341,27 +413,27 @@
       <!-- LEFT: SCOP & SEASONAL ENERGY ANALYTICS WITH PERIOD FILTER -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title">SCOP Rendement & Energiebalans</span>
+          <span class="card-title" id="titleScopCard">SCOP Efficiency & Energy Balance</span>
           <div class="range-btn-group" id="scopPeriodControls">
-            <button class="btn-range" id="btnScop_alltime" onclick="setScopPeriod('alltime')">Altijd</button>
-            <button class="btn-range active" id="btnScop_jaar" onclick="setScopPeriod('jaar')">Jaar</button>
-            <button class="btn-range" id="btnScop_maand" onclick="setScopPeriod('maand')">Maand</button>
+            <button class="btn-range" id="btnScop_alltime" onclick="setScopPeriod('alltime')">All-Time</button>
+            <button class="btn-range active" id="btnScop_jaar" onclick="setScopPeriod('jaar')">Year</button>
+            <button class="btn-range" id="btnScop_maand" onclick="setScopPeriod('maand')">Month</button>
             <button class="btn-range" id="btnScop_week" onclick="setScopPeriod('week')">Week</button>
-            <button class="btn-range" id="btnScop_dag" onclick="setScopPeriod('dag')">Dag</button>
+            <button class="btn-range" id="btnScop_dag" onclick="setScopPeriod('dag')">Day</button>
           </div>
         </div>
 
         <div class="scop-grid">
           <div class="scop-tile">
-            <div class="lbl" id="lblScopTot">SCOP Totaal (Jaar)</div>
+            <div class="lbl" id="lblScopTot">SCOP Total (Year)</div>
             <div class="val" id="valScopTotal" style="color: var(--green);">0.00</div>
           </div>
           <div class="scop-tile">
-            <div class="lbl" id="lblScopCv">SCOP CV (Jaar)</div>
+            <div class="lbl" id="lblScopCv">SCOP CH (Year)</div>
             <div class="val" id="valScopCv" style="color: var(--teal);">0.00</div>
           </div>
           <div class="scop-tile">
-            <div class="lbl" id="lblScopDhw">SCOP SWW (Jaar)</div>
+            <div class="lbl" id="lblScopDhw">SCOP DHW (Year)</div>
             <div class="val" id="valScopDhw" style="color: var(--amber);">0.00</div>
           </div>
         </div>
@@ -369,24 +441,24 @@
         <table class="energy-table">
           <thead>
             <tr>
-              <th id="tblHeaderPeriod">Energiebalans (Jaar)</th>
-              <th style="text-align: right;">Thermisch</th>
-              <th style="text-align: right;">Elektrisch</th>
+              <th id="tblHeaderPeriod">Energy Balance (Year)</th>
+              <th id="tblColThermal" style="text-align: right;">Thermal</th>
+              <th id="tblColElec" style="text-align: right;">Electrical</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>🔥 Vloerverwarming (CV)</td>
+              <td id="tblRowCv">🔥 Underfloor Heating (CH)</td>
               <td class="num" id="tblThCv">0 kWh</td>
               <td class="num" id="tblElCv">0 kWh</td>
             </tr>
             <tr>
-              <td>🚿 Tapwaterboiler (SWW)</td>
+              <td id="tblRowDhw">🚿 DHW Tank (DHW)</td>
               <td class="num" id="tblThDhw">0 kWh</td>
               <td class="num" id="tblElDhw">0 kWh</td>
             </tr>
             <tr style="border-top: 2px solid rgba(148,163,184,0.2);">
-              <td><strong id="tblFooterPeriod">Totaal Jaar</strong></td>
+              <td><strong id="tblFooterPeriod">Total Year</strong></td>
               <td class="num" id="tblThTot">0 kWh</td>
               <td class="num" id="tblElTot">0 kWh</td>
             </tr>
@@ -397,14 +469,14 @@
       <!-- RIGHT: STOOKLIJN CURVE + PARALLEL SHIFT SLIDER UNDERNEATH -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Stooklijn (Weersafhankelijk)</span>
-          <span class="card-badge" id="curveOperatingPoint">Werkpunt: --°C → --°C</span>
+          <span class="card-title" id="titleCurveCard">Heating Curve (Weather Compensated)</span>
+          <span class="card-badge" id="curveOperatingPoint">Operating Point: --°C → --°C</span>
         </div>
         <canvas id="stooklijnChart" class="chart-canvas"></canvas>
 
         <!-- STOOKLIJN PARALLEL SHIFT CONTROL -->
         <div class="slider-row">
-          <span>Stooklijn Parallel Shift (Offset):</span>
+          <span id="lblSliderOffset">Heating Curve Parallel Shift (Offset):</span>
           <input type="range" id="shiftSlider" min="-5" max="5" step="1" value="0" onchange="updateShift(this.value)" />
           <strong id="shiftLabel" style="color: var(--teal); min-width: 45px; text-align: right;">0 K</strong>
         </div>
@@ -413,8 +485,8 @@
   </div>
 
   <!-- SCRIPTS IN VOLGORDE VAN AFHANKELIJKHEID -->
-  <script src="error-codes.js"></script>
-  <script src="charts.js"></script>
-  <script src="app.js"></script>
+  <script src="error-codes.js?v=8"></script>
+  <script src="charts.js?v=8"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

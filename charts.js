@@ -1,5 +1,5 @@
 // =========================================================================
-// HOVER & STEP-HOLD HELPERS (GEEN SMOOTHING / GEEN LINEAIRE INTERPOLATIE)
+// HOVER & STEP-HOLD HELPERS (NO SMOOTHING / NO LINEAR INTERPOLATION)
 // =========================================================================
 const hoverState = {
   top: null,
@@ -36,9 +36,11 @@ function formatHourLabel(hr) {
   const targetDate = new Date(Date.now() - hoursAgo * 3600 * 1000);
   const hh = String(targetDate.getHours()).padStart(2, "0");
   const mm = String(targetDate.getMinutes()).padStart(2, "0");
-  if (hoursAgo < 0.02) return `${hh}:${mm} (Nu)`;
+  const nowLbl = typeof t === "function" ? t("now") : "Now";
+  const hrUnit = typeof t === "function" ? t("hrShort") : "h";
+  if (hoursAgo < 0.02) return `${hh}:${mm} (${nowLbl})`;
   if (hoursAgo < 1.0) return `${hh}:${mm} (-${Math.round(hoursAgo * 60)}m)`;
-  return `${hh}:${mm} (-${hoursAgo.toFixed(1)}u)`;
+  return `${hh}:${mm} (-${hoursAgo.toFixed(1)}${hrUnit})`;
 }
 
 function getStepValueAtHr(pts, targetHr) {
@@ -137,6 +139,8 @@ function bindCanvasHover(canvasId, key, redrawFn) {
 function drawTimeAxisLabels(ctx, startHr, rangeHours, xForTime, h) {
   ctx.fillStyle = "#94a3b8";
   ctx.font = "10px sans-serif";
+  const nowLbl = typeof t === "function" ? t("now") : "Now";
+  const hrUnit = typeof t === "function" ? t("hrShort") : "h";
   const ticks = 6;
   for (let i = 0; i <= ticks; i++) {
     const hr = startHr + (i / ticks) * rangeHours;
@@ -144,13 +148,13 @@ function drawTimeAxisLabels(ctx, startHr, rangeHours, xForTime, h) {
     const hoursAgo = 24 - hr;
     let label;
     if (i === ticks) {
-      label = "Nu";
+      label = nowLbl;
     } else if (rangeHours === 1) {
       label = `-${Math.round(hoursAgo * 60)}m`;
     } else {
-      label = `-${Math.round(hoursAgo)}u`;
+      label = `-${Math.round(hoursAgo)}${hrUnit}`;
     }
-    ctx.fillText(label, x - (i === ticks ? 8 : 12), h - 5);
+    ctx.fillText(label, x - (i === ticks ? 12 : 12), h - 5);
   }
 }
 
@@ -273,10 +277,12 @@ function drawTopMetricChart() {
   const rangeHours = selectedChartHours;
   const startHr = 24 - rangeHours;
   const xForTime = (hr) => padLeft + ((hr - startHr) / rangeHours) * innerW;
+  const hrUnit = typeof t === "function" ? t("hrShort") : "h";
 
-  // MULTI-LINE STEP CHART FOR WATER TEMPERATURES (AANVOER LWT + RETOUR EWT + BEREKEND SETPOINT CV + DELTA T)
+  // MULTI-LINE STEP CHART FOR WATER TEMPERATURES (SUPPLY LWT + RETURN EWT + CALCULATED SETPOINT CH + DELTA T)
   if (activeKpiKey === "water") {
-    document.getElementById("drawerTitle").textContent = `Watertemp & ΔT (${rangeHours}u)`;
+    const waterTitle = typeof t === "function" ? t("chartWaterTitle") : "Water Temp & ΔT";
+    document.getElementById("drawerTitle").textContent = `${waterTitle} (${rangeHours}${hrUnit})`;
 
     let fullSup = [];
     let fullRet = [];
@@ -308,8 +314,12 @@ function drawTopMetricChart() {
     const maxSup = Math.max(...supVals);
     const curTargetVal = targetPts.length > 0 ? targetPts[targetPts.length - 1].val : 28.0;
 
+    const isOutletMode = typeof userSettings !== "undefined" && userSettings.curveControl === "outlet";
+    const refTag = isOutletMode ? "LWT" : "EWT";
+    const setpointShort = typeof t === "function" ? t("setpointCvShort") : "Setpoint CH";
+
     document.getElementById("drawerBadge").textContent =
-      `${minSup.toFixed(1)}–${maxSup.toFixed(1)}°C • Setpoint CV: ${curTargetVal.toFixed(1)}°C • ΔT: ${(currentState.supply - currentState.ret).toFixed(2)}K`;
+      `${minSup.toFixed(1)}–${maxSup.toFixed(1)}°C • ${setpointShort} (${refTag}): ${curTargetVal.toFixed(1)}°C • ΔT: ${(currentState.supply - currentState.ret).toFixed(2)}K`;
 
     const yMin = Math.min(20, Math.floor((Math.min(...allWaterVals) - 2) / 5) * 5);
     const yMax = Math.max(35, Math.ceil((Math.max(...allWaterVals) + 3) / 5) * 5);
@@ -361,13 +371,17 @@ function drawTopMetricChart() {
     plotWaterStepLine(retPts, "#38bdf8", "rgba(56, 189, 248, 0.08)");
     plotWaterStepLine(targetPts, "#10b981", null, [6, 4]);
 
+    const lblSupply = typeof t === "function" ? t("supplyLwt") : "Supply (LWT)";
+    const lblReturn = typeof t === "function" ? t("returnEwt") : "Return (EWT)";
+    const lblSetpointLegend = `${setpointShort} (${refTag})`;
+
     ctx.font = "bold 11px sans-serif";
     ctx.fillStyle = "#f97316";
-    ctx.fillText("● Aanvoer (LWT)", padLeft + 5, 14);
+    ctx.fillText("● " + lblSupply, padLeft + 5, 14);
     ctx.fillStyle = "#38bdf8";
-    ctx.fillText("● Retour (EWT)", padLeft + 108, 14);
+    ctx.fillText("● " + lblReturn, padLeft + 115, 14);
     ctx.fillStyle = "#10b981";
-    ctx.fillText("┄ Berekend Setpoint CV", padLeft + 206, 14);
+    ctx.fillText("┄ " + lblSetpointLegend, padLeft + 222, 14);
 
     const hov = hoverState.top;
     if (hov && hov.mx >= padLeft && hov.mx <= w - padRight && hov.my >= padTop && hov.my <= h - padBottom) {
@@ -384,23 +398,26 @@ function drawTopMetricChart() {
       if (targetVal !== null) drawHighlightDot(ctx, cx, yForTemp(targetVal), "#10b981");
 
       const dtVal = (supVal !== null && retVal !== null) ? (supVal - retVal) : 0;
-      const hystDiff = (retVal !== null && targetVal !== null) ? (retVal - targetVal) : null;
-      const hystTxt = hystDiff !== null ? ("EWT " + (hystDiff >= 0 ? "+" : "") + hystDiff.toFixed(1) + " K") : "--";
+      const compareVal = isOutletMode ? supVal : retVal;
+      const hystDiff = (compareVal !== null && targetVal !== null) ? (compareVal - targetVal) : null;
+      const hystTxt = hystDiff !== null ? (`${refTag} ${hystDiff >= 0 ? "+" : ""}${hystDiff.toFixed(1)} K`) : "--";
+      const timeLbl = typeof t === "function" ? t("ttTime") : "Time";
+      const cursorYLbl = typeof t === "function" ? t("ttCursorY") : "Cursor Y-axis";
 
       showTooltip(
         hov.clientX,
         hov.clientY,
-        `<div class="tt-header">Tijd: ${formatHourLabel(hoverHr)}</div>
+        `<div class="tt-header">${timeLbl}: ${formatHourLabel(hoverHr)}</div>
          <div class="tt-row">
-           <span class="tt-lbl"><span class="tt-dot" style="background:#f97316"></span>Aanvoer (LWT):</span>
+           <span class="tt-lbl"><span class="tt-dot" style="background:#f97316"></span>${lblSupply}:</span>
            <span class="tt-val">${supVal !== null ? supVal.toFixed(1) : "--"} °C</span>
          </div>
          <div class="tt-row">
-           <span class="tt-lbl"><span class="tt-dot" style="background:#38bdf8"></span>Retour (EWT):</span>
+           <span class="tt-lbl"><span class="tt-dot" style="background:#38bdf8"></span>${lblReturn}:</span>
            <span class="tt-val">${retVal !== null ? retVal.toFixed(1) : "--"} °C</span>
          </div>
          <div class="tt-row">
-           <span class="tt-lbl"><span class="tt-dot" style="background:#10b981"></span>Setpoint CV:</span>
+           <span class="tt-lbl"><span class="tt-dot" style="background:#10b981"></span>${setpointShort} (${refTag}):</span>
            <span class="tt-val">${targetVal !== null ? targetVal.toFixed(1) : "--"} °C (${hystTxt})</span>
          </div>
          <div class="tt-row">
@@ -408,7 +425,7 @@ function drawTopMetricChart() {
            <span class="tt-val">${dtVal.toFixed(2)} K</span>
          </div>
          <div class="tt-row tt-sub">
-           <span>Cursor Y-as:</span>
+           <span>${cursorYLbl}:</span>
            <span>${cursorTemp.toFixed(1)} °C</span>
          </div>`
       );
@@ -417,11 +434,12 @@ function drawTopMetricChart() {
   }
 
   const normKey = activeKpiKey === "sub_pressure" ? "pressure" : activeKpiKey;
+  const tr = (k, fb) => (typeof t === "function" ? t(k) : fb);
 
   const metaMap = {
     pressure: {
-      title: `Waterdruk (${rangeHours}u)`,
-      shortLabel: "Waterdruk",
+      title: `${tr("chartPressureTitle", "Water Pressure")} (${rangeHours}${hrUnit})`,
+      shortLabel: tr("chartPressureShort", "Pressure"),
       unit: " bar",
       color: "#38bdf8",
       fill: "rgba(56, 189, 248, 0.14)",
@@ -431,8 +449,8 @@ function drawTopMetricChart() {
       fallbackFn: () => currentState.pressure || 1.8
     },
     indoor: {
-      title: `Binnentemp (${rangeHours}u)`,
-      shortLabel: "Binnen",
+      title: `${tr("chartIndoorTitle", "Indoor Temp")} (${rangeHours}${hrUnit})`,
+      shortLabel: tr("chartIndoorShort", "Indoor"),
       unit: " °C",
       color: "#14b8a6",
       fill: "rgba(20, 184, 166, 0.14)",
@@ -442,8 +460,8 @@ function drawTopMetricChart() {
       fallbackFn: () => currentState.indoor
     },
     outdoor: {
-      title: `Buitentemp (${rangeHours}u)`,
-      shortLabel: "Buiten",
+      title: `${tr("chartOutdoorTitle", "Outdoor Temp")} (${rangeHours}${hrUnit})`,
+      shortLabel: tr("chartOutdoorShort", "Outdoor"),
       unit: " °C",
       color: "#f59e0b",
       fill: "rgba(245, 158, 11, 0.14)",
@@ -453,8 +471,8 @@ function drawTopMetricChart() {
       fallbackFn: () => currentState.outdoor
     },
     cop: {
-      title: `Rendement COP (${rangeHours}u)`,
-      shortLabel: "Rendement",
+      title: `${tr("chartCopTitle", "Efficiency COP")} (${rangeHours}${hrUnit})`,
+      shortLabel: tr("chartCopShort", "COP"),
       unit: " COP",
       color: "#10b981",
       fill: "rgba(16, 185, 129, 0.14)",
@@ -464,8 +482,8 @@ function drawTopMetricChart() {
       fallbackFn: () => currentState.cop
     },
     flow: {
-      title: `Circulatiedebiet (${rangeHours}u)`,
-      shortLabel: "Debiet",
+      title: `${tr("chartFlowTitle", "Flow Rate")} (${rangeHours}${hrUnit})`,
+      shortLabel: tr("chartFlowShort", "Flow"),
       unit: " L/min",
       color: "#38bdf8",
       fill: "rgba(56, 189, 248, 0.14)",
@@ -475,8 +493,8 @@ function drawTopMetricChart() {
       fallbackFn: () => currentState.flow
     },
     dhw: {
-      title: `Boilertemp (${rangeHours}u)`,
-      shortLabel: "Boiler",
+      title: `${tr("chartDhwTitle", "DHW Tank Temp")} (${rangeHours}${hrUnit})`,
+      shortLabel: tr("chartDhwShort", "DHW Tank"),
       unit: " °C",
       color: "#f59e0b",
       fill: "rgba(245, 158, 11, 0.14)",
@@ -486,8 +504,8 @@ function drawTopMetricChart() {
       fallbackFn: () => currentState.dhwTemp
     },
     sub_thermal: {
-      title: `Thermisch Vermogen (${rangeHours}u)`,
-      shortLabel: "Thermisch",
+      title: `${tr("chartThermalTitle", "Thermal Output")} (${rangeHours}${hrUnit})`,
+      shortLabel: tr("chartThermalShort", "Thermal"),
       unit: " kW",
       color: "#14b8a6",
       fill: "rgba(20, 184, 166, 0.14)",
@@ -497,8 +515,8 @@ function drawTopMetricChart() {
       fallbackFn: () => currentState.thermalKw || 0.0
     },
     sub_elec: {
-      title: `Elektrisch Verbruik (${rangeHours}u)`,
-      shortLabel: "Elektrisch",
+      title: `${tr("chartElecTitle", "Electrical Power")} (${rangeHours}${hrUnit})`,
+      shortLabel: tr("chartElecShort", "Electrical"),
       unit: " kW",
       color: "#f43f5e",
       fill: "rgba(244, 63, 94, 0.14)",
@@ -534,9 +552,9 @@ function drawTopMetricChart() {
   const maxVal = Math.max(...vals);
   const avgVal = vals.reduce((a, b) => a + b, 0) / vals.length;
 
-  let badgeTxt = `Min: ${minVal.toFixed(cfg.decimals)} • Max: ${maxVal.toFixed(cfg.decimals)} • Gem: ${avgVal.toFixed(cfg.decimals)}${cfg.unit}`;
+  let badgeTxt = `Min: ${minVal.toFixed(cfg.decimals)} • Max: ${maxVal.toFixed(cfg.decimals)} • ${tr("avgShort", "Avg")}: ${avgVal.toFixed(cfg.decimals)}${cfg.unit}`;
   if (normKey === "flow") {
-    badgeTxt += ` • Druk: ${currentState.pressure.toFixed(1)} bar`;
+    badgeTxt += ` • ${tr("chartPressureShort", "Pressure")}: ${currentState.pressure.toFixed(1)} bar`;
   }
   document.getElementById("drawerBadge").textContent = badgeTxt;
 
@@ -642,16 +660,19 @@ function drawTopMetricChart() {
     drawCrosshair(ctx, cx, hov.my, padLeft, w - padRight, padTop, h - padBottom);
     drawHighlightDot(ctx, cx, cy, cfg.color);
 
+    const timeLbl = tr("ttTime", "Time");
+    const cursorYLbl = tr("ttCursorY", "Cursor Y-axis");
+
     showTooltip(
       hov.clientX,
       hov.clientY,
-      `<div class="tt-header">Tijd: ${formatHourLabel(hoverHr)}</div>
+      `<div class="tt-header">${timeLbl}: ${formatHourLabel(hoverHr)}</div>
        <div class="tt-row">
          <span class="tt-lbl"><span class="tt-dot" style="background:${cfg.color}"></span>${cfg.shortLabel}:</span>
          <span class="tt-val">${curveVal.toFixed(cfg.decimals)}${cfg.unit}</span>
        </div>
        <div class="tt-row tt-sub">
-         <span>Cursor Y-as:</span>
+         <span>${cursorYLbl}:</span>
          <span>${cursorYVal.toFixed(cfg.decimals)}${cfg.unit}</span>
        </div>`
     );
@@ -728,8 +749,12 @@ function drawStooklijn(outdoorTemp, shiftK, oatLow, lwtHigh, oatHigh, lwtLow) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
+  const opPointPrefix = typeof t === "function" ? t("operatingPoint") : "Operating Point";
+  const isOutletMode = typeof userSettings !== "undefined" && userSettings.curveControl === "outlet";
+  const refTag = isOutletMode ? "LWT" : "EWT";
+
   document.getElementById("curveOperatingPoint").textContent =
-    "Werkpunt: " + outdoorTemp.toFixed(1) + "°C → " + curTarget.toFixed(1) + "°C";
+    `${opPointPrefix}: ${outdoorTemp.toFixed(1)}°C → ${curTarget.toFixed(1)}°C (${refTag})`;
 
   const hov = hoverState.stooklijn;
   if (hov && hov.mx >= padLeft && hov.mx <= w - padRight && hov.my >= padTop && hov.my <= h - padBottom) {
@@ -743,16 +768,20 @@ function drawStooklijn(outdoorTemp, shiftK, oatLow, lwtHigh, oatHigh, lwtLow) {
     drawCrosshair(ctx, hx, hov.my, padLeft, w - padRight, padTop, h - padBottom);
     drawHighlightDot(ctx, hx, hy, "#14b8a6");
 
+    const oatLbl = typeof t === "function" ? t("chartOutdoorShort") : "Outdoor";
+    const curveTargetLbl = typeof t === "function" ? t("curveTarget") : "Curve Target";
+    const cursorYLbl = typeof t === "function" ? t("ttCursorY") : "Cursor Y-axis";
+
     showTooltip(
       hov.clientX,
       hov.clientY,
-      `<div class="tt-header">Buiten: ${hoverOat.toFixed(1)} °C</div>
+      `<div class="tt-header">${oatLbl}: ${hoverOat.toFixed(1)} °C</div>
        <div class="tt-row">
-         <span class="tt-lbl"><span class="tt-dot" style="background:#14b8a6"></span>Stooklijn Doel:</span>
+         <span class="tt-lbl"><span class="tt-dot" style="background:#14b8a6"></span>${curveTargetLbl} (${refTag}):</span>
          <span class="tt-val">${curveLwt.toFixed(1)} °C</span>
        </div>
        <div class="tt-row tt-sub">
-         <span>Cursor Y-as:</span>
+         <span>${cursorYLbl}:</span>
          <span>${cursorLwt.toFixed(1)} °C</span>
        </div>`
     );

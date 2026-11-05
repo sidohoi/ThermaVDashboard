@@ -10,6 +10,917 @@ let selectedChartHours = 24;
 let selectedScopPeriod = "jaar";
 let isDraggingSlider = false;
 
+// =========================================================================
+// USER SETTINGS & PERSISTENCE (DEFAULT LANGUAGE: ENGLISH)
+// =========================================================================
+const SETTINGS_STORAGE_KEY = "lg_thermav_settings";
+
+let userSettings = {
+  lang: "en",                // "en" (default), "nl", "de", "fr", "es"
+  curveControl: "inlet",     // "inlet" (Return EWT) or "outlet" (Supply LWT)
+  dhwOverrideEnabled: false, // false = Auto (Sensor), true = Overrule (Manual)
+  dhwOverrideTemp: 50.0      // Manual DHW goal temperature (°C)
+};
+
+function loadUserSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.lang && I18N[parsed.lang]) userSettings.lang = parsed.lang;
+      if (parsed.curveControl === "inlet" || parsed.curveControl === "outlet") {
+        userSettings.curveControl = parsed.curveControl;
+      }
+      if (typeof parsed.dhwOverrideEnabled === "boolean") {
+        userSettings.dhwOverrideEnabled = parsed.dhwOverrideEnabled;
+      }
+      if (!isNaN(parseFloat(parsed.dhwOverrideTemp))) {
+        userSettings.dhwOverrideTemp = Math.min(65, Math.max(35, parseFloat(parsed.dhwOverrideTemp)));
+      }
+    }
+  } catch (e) {}
+}
+
+function saveUserSettings() {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(userSettings));
+  } catch (e) {}
+}
+
+// =========================================================================
+// MULTI-LANGUAGE DICTIONARY (EN DEFAULT, NL, DE, FR, ES)
+// =========================================================================
+const I18N = {
+  en: {
+    brandSub: "Direct Injection Hydronic Topology • Elfin EW11 Gateway",
+    connLive: "LIVE HASS CONNECTED",
+    connDemo: "DEMO PREVIEW MODE",
+    sysStatus: "System Status:",
+    diagLabel: "Diagnostics:",
+    diagTitle: "Click for CH error code book & diagnostics",
+    btnPower: "⚡ HP On/Off",
+    btnDhw: "🚿 DHW Enable",
+    btnSilent: "🌙 Silent Mode",
+    btnSettingsTitle: "Configuration",
+    closeBtn: "✕ Close",
+    hrShort: "h",
+    now: "Now",
+    avgShort: "Avg",
+    ttTime: "Time",
+    ttCursorY: "Cursor Y-axis",
+
+    // Modes & States
+    standby: "Standby",
+    defrostActive: "Defrost Active",
+    dhwCharging: "DHW Tank Charging",
+    ufhCh: "Underfloor Heating (CH)",
+    postRunSniff: "Post-run / Sniffing Cycle",
+    faultAlert: "Fault!",
+
+    // Card 1: COP
+    titleCardCop: "Current Efficiency",
+    copDayPrefix: "COP • Day:",
+    lblSubThermal: "Thermal Output",
+    lblSubElec: "Electrical Power",
+    copTop: "Peak Efficiency",
+    copDhw: "DHW Charging",
+    copActive: "Active Heating",
+    copLow: "Startup / Low",
+
+    // Card 2: Water Temp & Delta T
+    titleCardWater: "Water Temp & ΔT",
+    lblSubDeltaT: "Current Delta T (ΔT)",
+    lblTargetCvInlet: "Calculated Setpoint CH (EWT)",
+    lblTargetCvOutlet: "Calculated Setpoint CH (LWT)",
+    badgeTargetCh: "Target CH:",
+    badgeTargetDhw: "Target DHW:",
+    supplyLwt: "Supply (LWT)",
+    returnEwt: "Return (EWT)",
+    setpointCvShort: "Setpoint CH",
+
+    // Card 3: DHW
+    titleCardDhw: "200L DHW Tank",
+    badgeDhwTop: "200 Liters",
+    lblSubDhwTarget: "DHW Target Temp",
+    lblSubDhwState: "DHW Status",
+    dhwStateActive: "Actively Charging 🔥",
+    dhwStateDisabled: "Disabled (Hold)",
+    dhwStateStandby: "Standby (Enabled)",
+
+    // Card 4: Indoor
+    titleCardIndoor: "Indoor",
+    badgeIndoor: "Living Room",
+    lblSubIndoorShift: "Curve Offset",
+    lblSubIndoorAvg: "Daily Average",
+
+    // Card 5: Outdoor
+    titleCardOutdoor: "Outdoor",
+    badgeOutdoor: "Weather Compensated",
+    lblSubOutdoorBounds: "Curve Range",
+    lblSubWeather: "Current Weather",
+    toWord: "to",
+
+    // Card 6: Flow & Pressure
+    titleCardFlow: "Circulation & System Pressure",
+    lblSubPressure: "System Pressure",
+    lblSubMassFlow: "Mass Flow",
+    massFlowUnit: "L/h",
+    pumpLowFlow: "Flow Rate Too Low!",
+    pumpCompOn: "Compressor & Pump ON",
+    pumpSniff: "Pump Active (Sniff)",
+    pumpOff: "Pump Off",
+    valveSniff: "Sniffing Cycle (CH)",
+    valveDhw: "DHW Tank",
+    valveUfh: "Underfloor Heating",
+
+    // Schematic
+    titleSchematic: "Live Hydronic Schematic",
+    schemDhw: "Active: 200L DHW Tank",
+    schemCh: "Active: Underfloor Heating (CH)",
+    schemSniff: "Standby (Sniffing Cycle Active)",
+    schemIdle: "Standby (No Heat Demand)",
+    svgActive: "ACTIVE",
+    svgIdle: "IDLE",
+    svgOutdoorPrefix: "Outdoor:",
+    svgIndoorPrefix: "🏠 Indoor:",
+    svgValveTitle: "3-WAY",
+    svgValveDhw: "→ DHW",
+    svgValveCh: "→ CH",
+    svgBoilerTitle: "200L DHW Hot Water Tank",
+    svgBoilerCharging: "CHARGING NOW 🔥",
+    svgBoilerDisabled: "Disabled",
+    svgSlabTitle: "Underfloor Heating (Direct CH)",
+    svgSlabOutput: "Output:",
+    stripPressure: "Water Pressure (24h chart)",
+    stripThermal: "Thermal Output (24h chart)",
+    stripElec: "Electrical Power (24h chart)",
+
+    // Charts & Drawer
+    drawerErrorTitle: "CH Error Codes & Diagnostics",
+    codesWord: "Codes",
+    errSearchPlaceholder: "Search error code (e.g. CH14, CH32) or keyword (flow, sensor, pressure, defrost)...",
+    chartWaterTitle: "Water Temp & ΔT",
+    chartPressureTitle: "Water Pressure",
+    chartPressureShort: "Pressure",
+    chartIndoorTitle: "Indoor Temp",
+    chartIndoorShort: "Indoor",
+    chartOutdoorTitle: "Outdoor Temp",
+    chartOutdoorShort: "Outdoor",
+    chartCopTitle: "Efficiency COP",
+    chartCopShort: "Efficiency",
+    chartFlowTitle: "Circulation Flow",
+    chartFlowShort: "Flow",
+    chartDhwTitle: "DHW Tank Temp",
+    chartDhwShort: "DHW Tank",
+    chartThermalTitle: "Thermal Output",
+    chartThermalShort: "Thermal",
+    chartElecTitle: "Electrical Power",
+    chartElecShort: "Electrical",
+
+    // SCOP & Energy Balance
+    titleScopCard: "SCOP Efficiency & Energy Balance",
+    period_alltime: "All-Time",
+    period_jaar: "Year",
+    period_maand: "Month",
+    period_week: "Week",
+    period_dag: "Day",
+    scopTotPrefix: "SCOP Total",
+    scopCvPrefix: "SCOP CH",
+    scopDhwPrefix: "SCOP DHW",
+    tblHeaderPrefix: "Energy Balance",
+    tblColThermal: "Thermal",
+    tblColElec: "Electrical",
+    tblRowCv: "🔥 Underfloor Heating (CH)",
+    tblRowDhw: "🚿 DHW Tank (DHW)",
+    tblFooterPrefix: "Total",
+
+    // Heating Curve
+    titleCurveCard: "Heating Curve (Weather Compensated)",
+    operatingPoint: "Operating Point",
+    curveTarget: "Curve Target",
+    lblSliderOffset: "Heating Curve Parallel Shift (Offset):",
+
+    // Settings Modal
+    cfgTitle: "⚙️ Dashboard Configuration",
+    cfgLangTitle: "🌐 Language",
+    cfgLangDesc: "Select the display language for the dashboard (Default: English).",
+    cfgCurveTitle: "📈 Heating Curve Control (Stooklijn Sturing)",
+    cfgCurveDesc: "Choose whether the heating curve controls Return/Inlet water (EWT) or Supply/Outlet water (LWT). Also updates the hysteresis difference in the Water Temp & ΔT chart.",
+    cfgCurveInlet: "Inlet / Return (EWT)",
+    cfgCurveOutlet: "Outlet / Supply (LWT)",
+    cfgDhwTitle: "🚿 DHW Target Temperature Overrule",
+    cfgDhwDesc: "Use the automatic Modbus sensor value or manually overrule the DHW (SWW) target temperature.",
+    cfgDhwAuto: "Auto (Sensor)",
+    cfgDhwManual: "Overrule (Manual)",
+
+    // Confirm Prompts
+    confirmPower: "⚠️ ARE YOU SURE?\n\nDo you really want to turn the heat pump ON or OFF?",
+    confirmDhw: "⚠️ ARE YOU SURE?\n\nDo you want to toggle DHW hot water tank heating permission?",
+
+    // Weather
+    w_clear_night: "🌙 Clear Night",
+    w_cloudy: "☁️ Cloudy",
+    w_exceptional: "⚠️ Warning",
+    w_fog: "🌫️ Fog",
+    w_hail: "🌨️ Hail",
+    w_lightning: "🌩️ Thunderstorm",
+    w_lightning_rainy: "⛈️ Storm & Rain",
+    w_partlycloudy: "⛅ Partly Cloudy",
+    w_pouring: "🌧️ Heavy Rain",
+    w_rainy: "🌦️ Rain",
+    w_snowy: "❄️ Snow",
+    w_snowy_rainy: "🌨️ Sleet",
+    w_sunny: "☀️ Sunny",
+    w_windy: "💨 Windy",
+    w_windy_variant: "💨 Cloudy & Windy"
+  },
+
+  nl: {
+    brandSub: "Direct Injection Hydronic Topology • Elfin EW11 Gateway",
+    connLive: "LIVE HASS VERBONDEN",
+    connDemo: "DEMO PREVIEW MODUS",
+    sysStatus: "Systeemstatus:",
+    diagLabel: "Diagnose:",
+    diagTitle: "Klik voor CH-foutcodeboek & diagnose",
+    btnPower: "⚡ WP Aan/Uit",
+    btnDhw: "🚿 SWW Vrijgave",
+    btnSilent: "🌙 Silent Mode",
+    btnSettingsTitle: "Instellingen",
+    closeBtn: "✕ Sluiten",
+    hrShort: "u",
+    now: "Nu",
+    avgShort: "Gem",
+    ttTime: "Tijd",
+    ttCursorY: "Cursor Y-as",
+
+    standby: "Stand-by",
+    defrostActive: "Defrost Actief",
+    dhwCharging: "SWW Boiler Laden",
+    ufhCh: "Vloerverwarming (CV)",
+    postRunSniff: "Nadraaien / Snuffelcyclus",
+    faultAlert: "Storing!",
+
+    titleCardCop: "Actueel Rendement",
+    copDayPrefix: "COP • Dag:",
+    lblSubThermal: "Thermisch Vermogen",
+    lblSubElec: "Elektrisch Vermogen",
+    copTop: "Top Rendement",
+    copDhw: "SWW Laden",
+    copActive: "Actief Verwarmen",
+    copLow: "Opstart / Laag",
+
+    titleCardWater: "Watertemp & ΔT",
+    lblSubDeltaT: "Actuele Delta T (ΔT)",
+    lblTargetCvInlet: "Berekend Setpoint CV (EWT)",
+    lblTargetCvOutlet: "Berekend Setpoint CV (LWT)",
+    badgeTargetCh: "Doel CV:",
+    badgeTargetDhw: "Doel SWW:",
+    supplyLwt: "Aanvoer (LWT)",
+    returnEwt: "Retour (EWT)",
+    setpointCvShort: "Setpoint CV",
+
+    titleCardDhw: "200L Tapwaterboiler",
+    badgeDhwTop: "200 Liter",
+    lblSubDhwTarget: "SWW Doeltemperatuur",
+    lblSubDhwState: "SWW Status",
+    dhwStateActive: "Actief Laden 🔥",
+    dhwStateDisabled: "Vrijgave Uit (Wacht)",
+    dhwStateStandby: "Stand-by (Vrijgave Aan)",
+
+    titleCardIndoor: "Binnen",
+    badgeIndoor: "Woonkamer",
+    lblSubIndoorShift: "Stooklijn Offset",
+    lblSubIndoorAvg: "Daggemiddelde",
+
+    titleCardOutdoor: "Buiten",
+    badgeOutdoor: "Weersafhankelijk",
+    lblSubOutdoorBounds: "Stooklijn Bereik",
+    lblSubWeather: "Actueel Weer",
+    toWord: "tot",
+
+    titleCardFlow: "Circulatie & Systeemdruk",
+    lblSubPressure: "Systeemdruk",
+    lblSubMassFlow: "Massastroom",
+    massFlowUnit: "L/u",
+    pumpLowFlow: "Stroming Te Laag!",
+    pumpCompOn: "Compressor & Pomp AAN",
+    pumpSniff: "Pomp Actief (Snuffel)",
+    pumpOff: "Pomp Uit",
+    valveSniff: "Snuffelcyclus (CV)",
+    valveDhw: "SWW Boiler",
+    valveUfh: "Vloerverwarming",
+
+    titleSchematic: "Live Hydraulisch Schema",
+    schemDhw: "Actief: 200L SWW Boiler",
+    schemCh: "Actief: Vloerverwarming (CV)",
+    schemSniff: "Stand-by (Snuffelcyclus Actief)",
+    schemIdle: "Stand-by (Geen Warmtevraag)",
+    svgActive: "ACTIEF",
+    svgIdle: "RUST",
+    svgOutdoorPrefix: "Buiten:",
+    svgIndoorPrefix: "🏠 Binnentemp:",
+    svgValveTitle: "3-WEG",
+    svgValveDhw: "→ SWW",
+    svgValveCh: "→ CV",
+    svgBoilerTitle: "200L SWW Tapwaterboiler",
+    svgBoilerCharging: "NU LADEN 🔥",
+    svgBoilerDisabled: "Vrijgave Uit",
+    svgSlabTitle: "Vloerverwarming (Direct CV)",
+    svgSlabOutput: "Afgifte:",
+    stripPressure: "Waterdruk (24u grafiek)",
+    stripThermal: "Thermisch Vermogen (24u grafiek)",
+    stripElec: "Elektrisch Verbruik (24u grafiek)",
+
+    drawerErrorTitle: "CH-Foutcodes & Diagnose",
+    codesWord: "Codes",
+    errSearchPlaceholder: "Zoek op foutcode (bijv. CH14, CH32) of trefwoord (debiet, sensor, druk, defrost)...",
+    chartWaterTitle: "Watertemp & ΔT",
+    chartPressureTitle: "Waterdruk",
+    chartPressureShort: "Waterdruk",
+    chartIndoorTitle: "Binnentemp",
+    chartIndoorShort: "Binnen",
+    chartOutdoorTitle: "Buitentemp",
+    chartOutdoorShort: "Buiten",
+    chartCopTitle: "Rendement COP",
+    chartCopShort: "Rendement",
+    chartFlowTitle: "Circulatiedebiet",
+    chartFlowShort: "Debiet",
+    chartDhwTitle: "Boilertemp",
+    chartDhwShort: "Boiler",
+    chartThermalTitle: "Thermisch Vermogen",
+    chartThermalShort: "Thermisch",
+    chartElecTitle: "Elektrisch Verbruik",
+    chartElecShort: "Elektrisch",
+
+    titleScopCard: "SCOP Rendement & Energiebalans",
+    period_alltime: "Altijd",
+    period_jaar: "Jaar",
+    period_maand: "Maand",
+    period_week: "Week",
+    period_dag: "Dag",
+    scopTotPrefix: "SCOP Totaal",
+    scopCvPrefix: "SCOP CV",
+    scopDhwPrefix: "SCOP SWW",
+    tblHeaderPrefix: "Energiebalans",
+    tblColThermal: "Thermisch",
+    tblColElec: "Elektrisch",
+    tblRowCv: "🔥 Vloerverwarming (CV)",
+    tblRowDhw: "🚿 Tapwaterboiler (SWW)",
+    tblFooterPrefix: "Totaal",
+
+    titleCurveCard: "Stooklijn (Weersafhankelijk)",
+    operatingPoint: "Werkpunt",
+    curveTarget: "Stooklijn Doel",
+    lblSliderOffset: "Stooklijn Parallel Shift (Offset):",
+
+    cfgTitle: "⚙️ Dashboard Instellingen",
+    cfgLangTitle: "🌐 Taal / Language",
+    cfgLangDesc: "Kies de weergavetaal voor het dashboard (Standaard: Engels).",
+    cfgCurveTitle: "📈 Stooklijn Sturing (Inlaat of Uitlaat)",
+    cfgCurveDesc: "Kies of de stooklijn stuurt op Retour/Inlaatwater (EWT) of Aanvoer/Uitlaatwater (LWT). Dit past ook het berekende hysterese-verschil in de Watertemp & ΔT grafiek aan.",
+    cfgCurveInlet: "Inlaat / Retour (EWT)",
+    cfgCurveOutlet: "Uitlaat / Aanvoer (LWT)",
+    cfgDhwTitle: "🚿 SWW Doeltemperatuur Overrulen",
+    cfgDhwDesc: "Gebruik de automatische Modbus-sensorwaarde of overschrijf handmatig de ingestelde SWW-doeltemperatuur.",
+    cfgDhwAuto: "Auto (Sensor)",
+    cfgDhwManual: "Overrulen (Handmatig)",
+
+    confirmPower: "⚠️ WEET JE HET ZEKER?\n\nWil je de warmtepomp daadwerkelijk aan- of uitzetten?",
+    confirmDhw: "⚠️ WEET JE HET ZEKER?\n\nWil je de vrijgave voor het maken van warm tapwater wijzigen?",
+
+    w_clear_night: "🌙 Helder",
+    w_cloudy: "☁️ Bewolkt",
+    w_exceptional: "⚠️ Waarschuwing",
+    w_fog: "🌫️ Mist",
+    w_hail: "🌨️ Hagel",
+    w_lightning: "🌩️ Onweer",
+    w_lightning_rainy: "⛈️ Onweer & Regen",
+    w_partlycloudy: "⛅ Halfbewolkt",
+    w_pouring: "🌧️ Stortregen",
+    w_rainy: "🌦️ Regen",
+    w_snowy: "❄️ Sneeuw",
+    w_snowy_rainy: "🌨️ Natte sneeuw",
+    w_sunny: "☀️ Zonnig",
+    w_windy: "💨 Winderig",
+    w_windy_variant: "💨 Bewolkt & Wind"
+  },
+
+  de: {
+    brandSub: "Direktinjektions-Hydronik • Elfin EW11 Gateway",
+    connLive: "LIVE HASS VERBUNDEN",
+    connDemo: "DEMO-VORSCHAUMODUS",
+    sysStatus: "Systemstatus:",
+    diagLabel: "Diagnose:",
+    diagTitle: "Klicken für CH-Fehlercodebuch & Diagnose",
+    btnPower: "⚡ WP Ein/Aus",
+    btnDhw: "🚿 WW Freigabe",
+    btnSilent: "🌙 Flüstermodus",
+    btnSettingsTitle: "Einstellungen",
+    closeBtn: "✕ Schließen",
+    hrShort: "h",
+    now: "Jetzt",
+    avgShort: "Ø",
+    ttTime: "Zeit",
+    ttCursorY: "Cursor Y-Achse",
+
+    standby: "Standby",
+    defrostActive: "Abtauung Aktiv",
+    dhwCharging: "WW-Speicher Laden",
+    ufhCh: "Fußbodenheizung (HZ)",
+    postRunSniff: "Nachlauf / Schnüffelzyklus",
+    faultAlert: "Störung!",
+
+    titleCardCop: "Aktuelle Effizienz",
+    copDayPrefix: "COP • Tag:",
+    lblSubThermal: "Thermische Leistung",
+    lblSubElec: "Elektrische Leistung",
+    copTop: "Top Effizienz",
+    copDhw: "WW Laden",
+    copActive: "Aktiv Heizen",
+    copLow: "Start / Niedrig",
+
+    titleCardWater: "Wassertemp & ΔT",
+    lblSubDeltaT: "Aktuelles Delta T (ΔT)",
+    lblTargetCvInlet: "Berechneter Sollwert HZ (EWT)",
+    lblTargetCvOutlet: "Berechneter Sollwert HZ (LWT)",
+    badgeTargetCh: "Soll HZ:",
+    badgeTargetDhw: "Soll WW:",
+    supplyLwt: "Vorlauf (LWT)",
+    returnEwt: "Rücklauf (EWT)",
+    setpointCvShort: "Sollwert HZ",
+
+    titleCardDhw: "200L Warmwasserspeicher",
+    badgeDhwTop: "200 Liter",
+    lblSubDhwTarget: "WW-Solltemperatur",
+    lblSubDhwState: "WW-Status",
+    dhwStateActive: "Aktiv Laden 🔥",
+    dhwStateDisabled: "Freigabe Aus",
+    dhwStateStandby: "Standby (Freigabe Ein)",
+
+    titleCardIndoor: "Innen",
+    badgeIndoor: "Wohnzimmer",
+    lblSubIndoorShift: "Heizkurven-Offset",
+    lblSubIndoorAvg: "Tagesmittel",
+
+    titleCardOutdoor: "Außen",
+    badgeOutdoor: "Witterungsgeführt",
+    lblSubOutdoorBounds: "Heizkurvenbereich",
+    lblSubWeather: "Aktuelles Wetter",
+    toWord: "bis",
+
+    titleCardFlow: "Zirkulation & Systemdruck",
+    lblSubPressure: "Systemdruck",
+    lblSubMassFlow: "Massenstrom",
+    massFlowUnit: "L/h",
+    pumpLowFlow: "Durchfluss zu niedrig!",
+    pumpCompOn: "Verdichter & Pumpe EIN",
+    pumpSniff: "Pumpe Aktiv (Schnüffel)",
+    pumpOff: "Pumpe Aus",
+    valveSniff: "Schnüffelzyklus (HZ)",
+    valveDhw: "WW-Speicher",
+    valveUfh: "Fußbodenheizung",
+
+    titleSchematic: "Live Hydronik-Schema",
+    schemDhw: "Aktiv: 200L WW-Speicher",
+    schemCh: "Aktiv: Fußbodenheizung (HZ)",
+    schemSniff: "Standby (Schnüffelzyklus Aktiv)",
+    schemIdle: "Standby (Kein Wärmebedarf)",
+    svgActive: "AKTIV",
+    svgIdle: "RUHE",
+    svgOutdoorPrefix: "Außen:",
+    svgIndoorPrefix: "🏠 Innentemp:",
+    svgValveTitle: "3-WEGE",
+    svgValveDhw: "→ WW",
+    svgValveCh: "→ HZ",
+    svgBoilerTitle: "200L Warmwasserspeicher",
+    svgBoilerCharging: "LÄDT JETZT 🔥",
+    svgBoilerDisabled: "Freigabe Aus",
+    svgSlabTitle: "Fußbodenheizung (Direkt HZ)",
+    svgSlabOutput: "Abgabe:",
+    stripPressure: "Wasserdruck (24h Diagramm)",
+    stripThermal: "Thermische Leistung (24h)",
+    stripElec: "Elektrischer Verbrauch (24h)",
+
+    drawerErrorTitle: "CH-Fehlercodes & Diagnose",
+    codesWord: "Codes",
+    errSearchPlaceholder: "Fehlercode suchen (z.B. CH14, CH32) oder Stichwort (Durchfluss, Sensor, Druck)...",
+    chartWaterTitle: "Wassertemp & ΔT",
+    chartPressureTitle: "Wasserdruck",
+    chartPressureShort: "Wasserdruck",
+    chartIndoorTitle: "Innentemp",
+    chartIndoorShort: "Innen",
+    chartOutdoorTitle: "Außentemp",
+    chartOutdoorShort: "Außen",
+    chartCopTitle: "Effizienz COP",
+    chartCopShort: "Effizienz",
+    chartFlowTitle: "Volumenstrom",
+    chartFlowShort: "Durchfluss",
+    chartDhwTitle: "Speichertemp",
+    chartDhwShort: "Speicher",
+    chartThermalTitle: "Thermische Leistung",
+    chartThermalShort: "Thermisch",
+    chartElecTitle: "Elektrische Leistung",
+    chartElecShort: "Elektrisch",
+
+    titleScopCard: "SCOP Effizienz & Energiebilanz",
+    period_alltime: "Gesamt",
+    period_jaar: "Jahr",
+    period_maand: "Monat",
+    period_week: "Woche",
+    period_dag: "Tag",
+    scopTotPrefix: "SCOP Gesamt",
+    scopCvPrefix: "SCOP HZ",
+    scopDhwPrefix: "SCOP WW",
+    tblHeaderPrefix: "Energiebilanz",
+    tblColThermal: "Thermisch",
+    tblColElec: "Elektrisch",
+    tblRowCv: "🔥 Fußbodenheizung (HZ)",
+    tblRowDhw: "🚿 Warmwasserspeicher (WW)",
+    tblFooterPrefix: "Gesamt",
+
+    titleCurveCard: "Heizkurve (Witterungsgeführt)",
+    operatingPoint: "Arbeitspunkt",
+    curveTarget: "Heizkurven-Soll",
+    lblSliderOffset: "Heizkurven-Parallelverschiebung (Offset):",
+
+    cfgTitle: "⚙️ Dashboard-Konfiguration",
+    cfgLangTitle: "🌐 Sprache / Language",
+    cfgLangDesc: "Wählen Sie die Anzeigesprache für das Dashboard (Standard: Englisch).",
+    cfgCurveTitle: "📈 Heizkurven-Regelung (Rücklauf oder Vorlauf)",
+    cfgCurveDesc: "Wählen Sie, ob die Heizkurve nach Rücklaufwasser (EWT) oder Vorlaufwasser (LWT) regelt. Passt auch die Hysterese-Differenz im Wassertemp & ΔT Diagramm an.",
+    cfgCurveInlet: "Einlass / Rücklauf (EWT)",
+    cfgCurveOutlet: "Auslass / Vorlauf (LWT)",
+    cfgDhwTitle: "🚿 WW-Solltemperatur Überschreiben",
+    cfgDhwDesc: "Automatischen Modbus-Sensorwert verwenden oder die WW-Solltemperatur manuell überschreiben.",
+    cfgDhwAuto: "Auto (Sensor)",
+    cfgDhwManual: "Überschreiben (Manuell)",
+
+    confirmPower: "⚠️ SIND SIE SICHER?\n\nMöchten Sie die Wärmepumpe wirklich EIN- oder AUSSCHALTEN?",
+    confirmDhw: "⚠️ SIND SIE SICHER?\n\nMöchten Sie die Warmwasser-Freigabe wirklich umschalten?",
+
+    w_clear_night: "🌙 Klar",
+    w_cloudy: "☁️ Bewölkt",
+    w_exceptional: "⚠️ Warnung",
+    w_fog: "🌫️ Nebel",
+    w_hail: "🌨️ Hagel",
+    w_lightning: "🌩️ Gewitter",
+    w_lightning_rainy: "⛈️ Gewitter & Regen",
+    w_partlycloudy: "⛅ Teilweise bewölkt",
+    w_pouring: "🌧️ Starkregen",
+    w_rainy: "🌦️ Regen",
+    w_snowy: "❄️ Schnee",
+    w_snowy_rainy: "🌨️ Schneeregen",
+    w_sunny: "☀️ Sonnig",
+    w_windy: "💨 Windig",
+    w_windy_variant: "💨 Bewölkt & Wind"
+  },
+
+  fr: {
+    brandSub: "Topologie Hydronique à Injection Directe • Passerelle Elfin EW11",
+    connLive: "HASS CONNECTÉ EN DIRECT",
+    connDemo: "MODE APERÇU DÉMO",
+    sysStatus: "État du système :",
+    diagLabel: "Diagnostic :",
+    diagTitle: "Cliquez pour le manuel des codes d'erreur CH & diagnostic",
+    btnPower: "⚡ PAC Marche/Arrêt",
+    btnDhw: "🚿 Autorisation ECS",
+    btnSilent: "🌙 Mode Silence",
+    btnSettingsTitle: "Paramètres",
+    closeBtn: "✕ Fermer",
+    hrShort: "h",
+    now: "Maint.",
+    avgShort: "Moy",
+    ttTime: "Heure",
+    ttCursorY: "Curseur axe Y",
+
+    standby: "Veille",
+    defrostActive: "Dégivrage Actif",
+    dhwCharging: "Charge Ballon ECS",
+    ufhCh: "Plancher Chauffant (CH)",
+    postRunSniff: "Post-circulation / Cycle de détection",
+    faultAlert: "Défaut !",
+
+    titleCardCop: "Rendement Actuel",
+    copDayPrefix: "COP • Jour :",
+    lblSubThermal: "Puissance Thermique",
+    lblSubElec: "Puissance Électrique",
+    copTop: "Rendement Optimal",
+    copDhw: "Charge ECS",
+    copActive: "Chauffage Actif",
+    copLow: "Démarrage / Bas",
+
+    titleCardWater: "Temp. Eau & ΔT",
+    lblSubDeltaT: "Delta T Actuel (ΔT)",
+    lblTargetCvInlet: "Consigne CH Calculée (EWT)",
+    lblTargetCvOutlet: "Consigne CH Calculée (LWT)",
+    badgeTargetCh: "Cible CH :",
+    badgeTargetDhw: "Cible ECS :",
+    supplyLwt: "Départ (LWT)",
+    returnEwt: "Retour (EWT)",
+    setpointCvShort: "Consigne CH",
+
+    titleCardDhw: "Ballon ECS 200L",
+    badgeDhwTop: "200 Litres",
+    lblSubDhwTarget: "Temp. Cible ECS",
+    lblSubDhwState: "État ECS",
+    dhwStateActive: "Charge en cours 🔥",
+    dhwStateDisabled: "Désactivé (Attente)",
+    dhwStateStandby: "Veille (Autorisé)",
+
+    titleCardIndoor: "Intérieur",
+    badgeIndoor: "Salon",
+    lblSubIndoorShift: "Décalage Loi d'Eau",
+    lblSubIndoorAvg: "Moyenne du Jour",
+
+    titleCardOutdoor: "Extérieur",
+    badgeOutdoor: "Loi d'eau climatique",
+    lblSubOutdoorBounds: "Plage Loi d'Eau",
+    lblSubWeather: "Météo Actuelle",
+    toWord: "à",
+
+    titleCardFlow: "Circulation & Pression Système",
+    lblSubPressure: "Pression Système",
+    lblSubMassFlow: "Débit Massique",
+    massFlowUnit: "L/h",
+    pumpLowFlow: "Débit Trop Faible !",
+    pumpCompOn: "Compresseur & Pompe ON",
+    pumpSniff: "Pompe Active (Détection)",
+    pumpOff: "Pompe Arrêtée",
+    valveSniff: "Cycle détection (CH)",
+    valveDhw: "Ballon ECS",
+    valveUfh: "Plancher Chauffant",
+
+    titleSchematic: "Schéma Hydronique en Direct",
+    schemDhw: "Actif : Ballon ECS 200L",
+    schemCh: "Actif : Plancher Chauffant (CH)",
+    schemSniff: "Veille (Cycle de détection actif)",
+    schemIdle: "Veille (Aucune demande)",
+    svgActive: "ACTIF",
+    svgIdle: "VEILLE",
+    svgOutdoorPrefix: "Extérieur :",
+    svgIndoorPrefix: "🏠 Intérieur :",
+    svgValveTitle: "3-VOIES",
+    svgValveDhw: "→ ECS",
+    svgValveCh: "→ CH",
+    svgBoilerTitle: "Ballon d'Eau Chaude ECS 200L",
+    svgBoilerCharging: "EN CHARGE 🔥",
+    svgBoilerDisabled: "Désactivé",
+    svgSlabTitle: "Plancher Chauffant (CH Direct)",
+    svgSlabOutput: "Émission :",
+    stripPressure: "Pression d'Eau (graph. 24h)",
+    stripThermal: "Puissance Thermique (24h)",
+    stripElec: "Conso. Électrique (24h)",
+
+    drawerErrorTitle: "Codes d'Erreur CH & Diagnostic",
+    codesWord: "Codes",
+    errSearchPlaceholder: "Rechercher un code (ex. CH14, CH32) ou mot-clé (débit, sonde, pression)...",
+    chartWaterTitle: "Temp. Eau & ΔT",
+    chartPressureTitle: "Pression d'Eau",
+    chartPressureShort: "Pression",
+    chartIndoorTitle: "Temp. Intérieure",
+    chartIndoorShort: "Intérieur",
+    chartOutdoorTitle: "Temp. Extérieure",
+    chartOutdoorShort: "Extérieur",
+    chartCopTitle: "Rendement COP",
+    chartCopShort: "Rendement",
+    chartFlowTitle: "Débit de Circulation",
+    chartFlowShort: "Débit",
+    chartDhwTitle: "Temp. Ballon ECS",
+    chartDhwShort: "Ballon ECS",
+    chartThermalTitle: "Puissance Thermique",
+    chartThermalShort: "Thermique",
+    chartElecTitle: "Puissance Électrique",
+    chartElecShort: "Électrique",
+
+    titleScopCard: "Rendement SCOP & Bilan Énergétique",
+    period_alltime: "Toujours",
+    period_jaar: "Année",
+    period_maand: "Mois",
+    period_week: "Semaine",
+    period_dag: "Jour",
+    scopTotPrefix: "SCOP Total",
+    scopCvPrefix: "SCOP CH",
+    scopDhwPrefix: "SCOP ECS",
+    tblHeaderPrefix: "Bilan Énergétique",
+    tblColThermal: "Thermique",
+    tblColElec: "Électrique",
+    tblRowCv: "🔥 Plancher Chauffant (CH)",
+    tblRowDhw: "🚿 Ballon d'Eau Chaude (ECS)",
+    tblFooterPrefix: "Total",
+
+    titleCurveCard: "Loi d'Eau (Compensation Climatique)",
+    operatingPoint: "Point de fonct.",
+    curveTarget: "Cible Loi d'Eau",
+    lblSliderOffset: "Décalage Parallèle Loi d'Eau (Offset) :",
+
+    cfgTitle: "⚙️ Configuration du Tableau de Bord",
+    cfgLangTitle: "🌐 Langue / Language",
+    cfgLangDesc: "Sélectionnez la langue d'affichage du tableau de bord (Par défaut : Anglais).",
+    cfgCurveTitle: "📈 Régulation Loi d'Eau (Entrée ou Sortie)",
+    cfgCurveDesc: "Choisissez si la loi d'eau régule sur l'eau de Retour/Entrée (EWT) ou de Départ/Sortie (LWT). Met également à jour l'écart d'hystérésis dans le graphique Temp. Eau & ΔT.",
+    cfgCurveInlet: "Entrée / Retour (EWT)",
+    cfgCurveOutlet: "Sortie / Départ (LWT)",
+    cfgDhwTitle: "🚿 Forçage Température Cible ECS",
+    cfgDhwDesc: "Utiliser la sonde Modbus automatique ou définir manuellement la température cible ECS.",
+    cfgDhwAuto: "Auto (Sonde)",
+    cfgDhwManual: "Forcer (Manuel)",
+
+    confirmPower: "⚠️ ÊTES-VOUS SÛR ?\n\nVoulez-vous vraiment allumer ou éteindre la pompe à chaleur ?",
+    confirmDhw: "⚠️ ÊTES-VOUS SÛR ?\n\nVoulez-vous vraiment modifier l'autorisation de chauffe du ballon ECS ?",
+
+    w_clear_night: "🌙 Nuit claire",
+    w_cloudy: "☁️ Nuageux",
+    w_exceptional: "⚠️ Alerte",
+    w_fog: "🌫️ Brouillard",
+    w_hail: "🌨️ Grêle",
+    w_lightning: "🌩️ Orage",
+    w_lightning_rainy: "⛈️ Orage & Pluie",
+    w_partlycloudy: "⛅ Éclaircies",
+    w_pouring: "🌧️ Forte pluie",
+    w_rainy: "🌦️ Pluie",
+    w_snowy: "❄️ Neige",
+    w_snowy_rainy: "🌨️ Neige fondue",
+    w_sunny: "☀️ Ensoleillé",
+    w_windy: "💨 Venteux",
+    w_windy_variant: "💨 Nuageux & Vent"
+  },
+
+  es: {
+    brandSub: "Topología Hidrónica de Inyección Directa • Pasarela Elfin EW11",
+    connLive: "HASS CONECTADO EN VIVO",
+    connDemo: "MODO VISTA PREVIA DEMO",
+    sysStatus: "Estado del sistema:",
+    diagLabel: "Diagnóstico:",
+    diagTitle: "Haga clic para ver el manual de códigos CH y diagnóstico",
+    btnPower: "⚡ BC Encender/Apagar",
+    btnDhw: "🚿 Habilitar ACS",
+    btnSilent: "🌙 Modo Silencioso",
+    btnSettingsTitle: "Ajustes",
+    closeBtn: "✕ Cerrar",
+    hrShort: "h",
+    now: "Ahora",
+    avgShort: "Prom",
+    ttTime: "Hora",
+    ttCursorY: "Cursor eje Y",
+
+    standby: "En espera",
+    defrostActive: "Desescarche Activo",
+    dhwCharging: "Cargando Depósito ACS",
+    ufhCh: "Suelo Radiante (CC)",
+    postRunSniff: "Post-circulación / Ciclo de sondeo",
+    faultAlert: "¡Avería!",
+
+    titleCardCop: "Rendimiento Actual",
+    copDayPrefix: "COP • Día:",
+    lblSubThermal: "Potencia Térmica",
+    lblSubElec: "Potencia Eléctrica",
+    copTop: "Máximo Rendimiento",
+    copDhw: "Cargando ACS",
+    copActive: "Calefacción Activa",
+    copLow: "Arranque / Bajo",
+
+    titleCardWater: "Temp. Agua y ΔT",
+    lblSubDeltaT: "Delta T Actual (ΔT)",
+    lblTargetCvInlet: "Consigna CC Calculada (EWT)",
+    lblTargetCvOutlet: "Consigna CC Calculada (LWT)",
+    badgeTargetCh: "Objetivo CC:",
+    badgeTargetDhw: "Objetivo ACS:",
+    supplyLwt: "Impulsión (LWT)",
+    returnEwt: "Retorno (EWT)",
+    setpointCvShort: "Consigna CC",
+
+    titleCardDhw: "Depósito ACS 200L",
+    badgeDhwTop: "200 Litros",
+    lblSubDhwTarget: "Temp. Objetivo ACS",
+    lblSubDhwState: "Estado ACS",
+    dhwStateActive: "Cargando Activamente 🔥",
+    dhwStateDisabled: "Deshabilitado (Espera)",
+    dhwStateStandby: "En espera (Habilitado)",
+
+    titleCardIndoor: "Interior",
+    badgeIndoor: "Salón",
+    lblSubIndoorShift: "Desplazamiento Curva",
+    lblSubIndoorAvg: "Promedio Diario",
+
+    titleCardOutdoor: "Exterior",
+    badgeOutdoor: "Compensación Climática",
+    lblSubOutdoorBounds: "Rango de Curva",
+    lblSubWeather: "Clima Actual",
+    toWord: "a",
+
+    titleCardFlow: "Circulación y Presión",
+    lblSubPressure: "Presión del Sistema",
+    lblSubMassFlow: "Caudal Másico",
+    massFlowUnit: "L/h",
+    pumpLowFlow: "¡Caudal Muy Bajo!",
+    pumpCompOn: "Compresor y Bomba ON",
+    pumpSniff: "Bomba Activa (Sondeo)",
+    pumpOff: "Bomba Apagada",
+    valveSniff: "Ciclo de sondeo (CC)",
+    valveDhw: "Depósito ACS",
+    valveUfh: "Suelo Radiante",
+
+    titleSchematic: "Esquema Hidrónico en Vivo",
+    schemDhw: "Activo: Depósito ACS 200L",
+    schemCh: "Activo: Suelo Radiante (CC)",
+    schemSniff: "En espera (Ciclo de sondeo activo)",
+    schemIdle: "En espera (Sin demanda térmica)",
+    svgActive: "ACTIVO",
+    svgIdle: "REPOSO",
+    svgOutdoorPrefix: "Exterior:",
+    svgIndoorPrefix: "🏠 Interior:",
+    svgValveTitle: "3-VÍAS",
+    svgValveDhw: "→ ACS",
+    svgValveCh: "→ CC",
+    svgBoilerTitle: "Depósito Agua Caliente ACS 200L",
+    svgBoilerCharging: "CARGANDO AHORA 🔥",
+    svgBoilerDisabled: "Deshabilitado",
+    svgSlabTitle: "Suelo Radiante (CC Directo)",
+    svgSlabOutput: "Entrega:",
+    stripPressure: "Presión de Agua (gráf. 24h)",
+    stripThermal: "Potencia Térmica (gráf. 24h)",
+    stripElec: "Consumo Eléctrico (gráf. 24h)",
+
+    drawerErrorTitle: "Códigos de Error CH y Diagnóstico",
+    codesWord: "Códigos",
+    errSearchPlaceholder: "Buscar código (ej. CH14, CH32) o palabra clave (caudal, sensor, presión)...",
+    chartWaterTitle: "Temp. Agua y ΔT",
+    chartPressureTitle: "Presión de Agua",
+    chartPressureShort: "Presión",
+    chartIndoorTitle: "Temp. Interior",
+    chartIndoorShort: "Interior",
+    chartOutdoorTitle: "Temp. Exterior",
+    chartOutdoorShort: "Exterior",
+    chartCopTitle: "Rendimiento COP",
+    chartCopShort: "Rendimiento",
+    chartFlowTitle: "Caudal de Circulación",
+    chartFlowShort: "Caudal",
+    chartDhwTitle: "Temp. Depósito ACS",
+    chartDhwShort: "Depósito ACS",
+    chartThermalTitle: "Potencia Térmica",
+    chartThermalShort: "Térmica",
+    chartElecTitle: "Potencia Eléctrica",
+    chartElecShort: "Eléctrica",
+
+    titleScopCard: "Rendimiento SCOP y Balance Energético",
+    period_alltime: "Siempre",
+    period_jaar: "Año",
+    period_maand: "Mes",
+    period_week: "Semana",
+    period_dag: "Día",
+    scopTotPrefix: "SCOP Total",
+    scopCvPrefix: "SCOP CC",
+    scopDhwPrefix: "SCOP ACS",
+    tblHeaderPrefix: "Balance Energético",
+    tblColThermal: "Térmico",
+    tblColElec: "Eléctrico",
+    tblRowCv: "🔥 Suelo Radiante (CC)",
+    tblRowDhw: "🚿 Depósito ACS (ACS)",
+    tblFooterPrefix: "Total",
+
+    titleCurveCard: "Curva de Calefacción (Climática)",
+    operatingPoint: "Punto de trab.",
+    curveTarget: "Objetivo Curva",
+    lblSliderOffset: "Desplazamiento Paralelo de Curva (Offset):",
+
+    cfgTitle: "⚙️ Configuración del Panel",
+    cfgLangTitle: "🌐 Idioma / Language",
+    cfgLangDesc: "Seleccione el idioma de visualización del panel (Predeterminado: Inglés).",
+    cfgCurveTitle: "📈 Control de Curva (Entrada o Salida)",
+    cfgCurveDesc: "Elija si la curva de calefacción controla el agua de Retorno/Entrada (EWT) o Impulsión/Salida (LWT). También actualiza la diferencia de histéresis en la gráfica de Temp. Agua y ΔT.",
+    cfgCurveInlet: "Entrada / Retorno (EWT)",
+    cfgCurveOutlet: "Salida / Impulsión (LWT)",
+    cfgDhwTitle: "🚿 Anular Temperatura Objetivo ACS",
+    cfgDhwDesc: "Usar el valor automático del sensor Modbus o fijar manualmente la temperatura objetivo de ACS.",
+    cfgDhwAuto: "Auto (Sensor)",
+    cfgDhwManual: "Anular (Manual)",
+
+    confirmPower: "⚠️ ¿ESTÁ SEGURO?\n\n¿Realmente desea ENCENDER o APAGAR la bomba de calor?",
+    confirmDhw: "⚠️ ¿ESTÁ SEGURO?\n\n¿Desea cambiar la habilitación de calentamiento del depósito ACS?",
+
+    w_clear_night: "🌙 Despejado",
+    w_cloudy: "☁️ Nublado",
+    w_exceptional: "⚠️ Alerta",
+    w_fog: "🌫️ Niebla",
+    w_hail: "🌨️ Granizo",
+    w_lightning: "🌩️ Tormenta",
+    w_lightning_rainy: "⛈️ Tormenta y Lluvia",
+    w_partlycloudy: "⛅ Parcialmente nublado",
+    w_pouring: "🌧️ Lluvia intensa",
+    w_rainy: "🌦️ Lluvia",
+    w_snowy: "❄️ Nieve",
+    w_snowy_rainy: "🌨️ Aguanieve",
+    w_sunny: "☀️ Soleado",
+    w_windy: "💨 Ventoso",
+    w_windy_variant: "💨 Nublado y Viento"
+  }
+};
+
+function t(key) {
+  const dict = I18N[userSettings.lang] || I18N.en;
+  return dict[key] !== undefined ? dict[key] : (I18N.en[key] || key);
+}
+
 let currentState = {
   outdoor: 6.5,
   indoor: 20.5,
@@ -44,6 +955,191 @@ let historySeries = {
   flow: [],
   dhw: []
 };
+
+// =========================================================================
+// SETTINGS MODAL & LANGUAGE APPLICATION
+// =========================================================================
+function openSettingsModal() {
+  syncSettingsModalUI();
+  document.getElementById("settingsModalBackdrop").classList.add("open");
+}
+
+function closeSettingsModal() {
+  document.getElementById("settingsModalBackdrop").classList.remove("open");
+}
+
+function handleModalBackdropClick(e) {
+  if (e.target && e.target.id === "settingsModalBackdrop") {
+    closeSettingsModal();
+  }
+}
+
+function syncSettingsModalUI() {
+  ["en", "nl", "de", "fr", "es"].forEach((l) => {
+    const btn = document.getElementById("btnLang_" + l);
+    if (btn) btn.classList.toggle("active", userSettings.lang === l);
+  });
+
+  const btnInlet = document.getElementById("btnCurve_inlet");
+  const btnOutlet = document.getElementById("btnCurve_outlet");
+  if (btnInlet) btnInlet.classList.toggle("active", userSettings.curveControl === "inlet");
+  if (btnOutlet) btnOutlet.classList.toggle("active", userSettings.curveControl === "outlet");
+
+  const btnAuto = document.getElementById("btnDhwMode_auto");
+  const btnManual = document.getElementById("btnDhwMode_manual");
+  if (btnAuto) btnAuto.classList.toggle("active", !userSettings.dhwOverrideEnabled);
+  if (btnManual) btnManual.classList.toggle("active", userSettings.dhwOverrideEnabled);
+
+  const row = document.getElementById("dhwOverrideRow");
+  if (row) row.classList.toggle("disabled", !userSettings.dhwOverrideEnabled);
+
+  const slider = document.getElementById("dhwOverrideSlider");
+  if (slider) slider.value = userSettings.dhwOverrideTemp;
+
+  const lbl = document.getElementById("dhwOverrideLabel");
+  if (lbl) lbl.textContent = userSettings.dhwOverrideTemp.toFixed(1) + " °C";
+}
+
+function applyStaticTranslations() {
+  document.documentElement.lang = userSettings.lang;
+  const setTxt = (id, key) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = t(key);
+  };
+
+  setTxt("brandSub", "brandSub");
+  setTxt("lblSysStatus", "sysStatus");
+  setTxt("lblDiag", "diagLabel");
+  const errCard = document.getElementById("card_error");
+  if (errCard) errCard.title = t("diagTitle");
+
+  setTxt("btnPower", "btnPower");
+  setTxt("btnDhw", "btnDhw");
+  setTxt("btnSilent", "btnSilent");
+  const btnSet = document.getElementById("btnSettings");
+  if (btnSet) btnSet.title = t("btnSettingsTitle");
+
+  setTxt("titleCardCop", "titleCardCop");
+  setTxt("lblCopDayPrefix", "copDayPrefix");
+  setTxt("lblSubThermal", "lblSubThermal");
+  setTxt("lblSubElec", "lblSubElec");
+
+  setTxt("titleCardWater", "titleCardWater");
+  setTxt("lblSubDeltaT", "lblSubDeltaT");
+  setTxt("lblTargetType", userSettings.curveControl === "outlet" ? "lblTargetCvOutlet" : "lblTargetCvInlet");
+
+  setTxt("titleCardDhw", "titleCardDhw");
+  setTxt("badgeDhwTop", "badgeDhwTop");
+  setTxt("lblSubDhwTarget", "lblSubDhwTarget");
+  setTxt("lblSubDhwState", "lblSubDhwState");
+
+  setTxt("titleCardIndoor", "titleCardIndoor");
+  setTxt("badgeIndoor", "badgeIndoor");
+  setTxt("lblSubIndoorShift", "lblSubIndoorShift");
+  setTxt("lblSubIndoorAvg", "lblSubIndoorAvg");
+
+  setTxt("titleCardOutdoor", "titleCardOutdoor");
+  setTxt("badgeOutdoor", "badgeOutdoor");
+  setTxt("lblSubOutdoorBounds", "lblSubOutdoorBounds");
+  setTxt("lblSubWeather", "lblSubWeather");
+
+  setTxt("titleCardFlow", "titleCardFlow");
+  setTxt("lblSubPressure", "lblSubPressure");
+  setTxt("lblSubMassFlow", "lblSubMassFlow");
+
+  const hrUnit = t("hrShort");
+  [24, 12, 6, 1].forEach((hr) => {
+    const b = document.getElementById("btnRange_" + hr);
+    if (b) b.textContent = hr + hrUnit;
+  });
+  setTxt("btnCloseDrawer", "closeBtn");
+  const searchEl = document.getElementById("errSearchInput");
+  if (searchEl) searchEl.placeholder = t("errSearchPlaceholder");
+
+  setTxt("titleSchematic", "titleSchematic");
+  setTxt("svgValveTitle", "svgValveTitle");
+  setTxt("svgBoilerTitle", "svgBoilerTitle");
+  setTxt("svgSlabTitle", "svgSlabTitle");
+  setTxt("lblStripPressure", "stripPressure");
+  setTxt("lblStripThermal", "stripThermal");
+  setTxt("lblStripElec", "stripElec");
+
+  setTxt("titleScopCard", "titleScopCard");
+  setTxt("btnScop_alltime", "period_alltime");
+  setTxt("btnScop_jaar", "period_jaar");
+  setTxt("btnScop_maand", "period_maand");
+  setTxt("btnScop_week", "period_week");
+  setTxt("btnScop_dag", "period_dag");
+  setTxt("tblColThermal", "tblColThermal");
+  setTxt("tblColElec", "tblColElec");
+  setTxt("tblRowCv", "tblRowCv");
+  setTxt("tblRowDhw", "tblRowDhw");
+
+  setTxt("titleCurveCard", "titleCurveCard");
+  setTxt("lblSliderOffset", "lblSliderOffset");
+
+  // Settings Modal Texts
+  setTxt("cfgTitle", "cfgTitle");
+  setTxt("btnCloseSettings", "closeBtn");
+  setTxt("cfgLangTitle", "cfgLangTitle");
+  setTxt("cfgLangDesc", "cfgLangDesc");
+  setTxt("cfgCurveTitle", "cfgCurveTitle");
+  setTxt("cfgCurveDesc", "cfgCurveDesc");
+  setTxt("btnCurve_inlet", "cfgCurveInlet");
+  setTxt("btnCurve_outlet", "cfgCurveOutlet");
+  setTxt("cfgDhwTitle", "cfgDhwTitle");
+  setTxt("cfgDhwDesc", "cfgDhwDesc");
+  setTxt("btnDhwMode_auto", "cfgDhwAuto");
+  setTxt("btnDhwMode_manual", "cfgDhwManual");
+}
+
+function setLanguage(lang) {
+  if (!I18N[lang]) return;
+  userSettings.lang = lang;
+  saveUserSettings();
+  syncSettingsModalUI();
+  applyStaticTranslations();
+  syncFromHass();
+}
+
+function setCurveControlMode(mode) {
+  if (mode !== "inlet" && mode !== "outlet") return;
+  userSettings.curveControl = mode;
+  saveUserSettings();
+  syncSettingsModalUI();
+  applyStaticTranslations();
+  syncFromHass();
+}
+
+function setDhwOverrideMode(enabled) {
+  userSettings.dhwOverrideEnabled = Boolean(enabled);
+  saveUserSettings();
+  syncSettingsModalUI();
+  syncFromHass();
+}
+
+function updateDhwOverrideTemp(val) {
+  const num = parseFloat(val);
+  if (isNaN(num)) return;
+  userSettings.dhwOverrideTemp = Math.min(65, Math.max(35, Math.round(num * 2) / 2));
+  userSettings.dhwOverrideEnabled = true;
+  saveUserSettings();
+  syncSettingsModalUI();
+  const hass = getHass();
+  if (hass) {
+    try {
+      hass.callService("input_number", "set_value", {
+        entity_id: "input_number.lg_wp_sww_setpoint_input",
+        value: userSettings.dhwOverrideTemp
+      });
+    } catch (e) {}
+  }
+  syncFromHass();
+}
+
+function stepDhwOverrideTemp(delta) {
+  updateDhwOverrideTemp(userSettings.dhwOverrideTemp + delta);
+}
 
 // =========================================================================
 // HOME ASSISTANT BRIDGE & ENTITY HELPERS
@@ -231,33 +1327,21 @@ function calculateIndoorDailyAverage(curIndoor) {
 
 function readBuienradarWeather(hass) {
   if (!hass || !hass.states || !hass.states[WEATHER_ENTITY]) {
-    return "⛅ Bewolkt";
+    return t("w_partlycloudy");
   }
   const stObj = hass.states[WEATHER_ENTITY];
-  const raw = (stObj.state || "").toLowerCase();
-  const map = {
-    "clear-night": "🌙 Helder",
-    "cloudy": "☁️ Bewolkt",
-    "exceptional": "⚠️ Waarschuwing",
-    "fog": "🌫️ Mist",
-    "hail": "🌨️ Hagel",
-    "lightning": "🌩️ Onweer",
-    "lightning-rainy": "⛈️ Onweer & Regen",
-    "partlycloudy": "⛅ Halfbewolkt",
-    "pouring": "🌧️ Stortregen",
-    "rainy": "🌦️ Regen",
-    "snowy": "❄️ Sneeuw",
-    "snowy-rainy": "🌨️ Natte sneeuw",
-    "sunny": "☀️ Zonnig",
-    "windy": "💨 Winderig",
-    "windy-variant": "💨 Bewolkt & Wind"
-  };
-  const label = map[raw] || ("🌤️ " + stObj.state);
+  const raw = (stObj.state || "").toLowerCase().replace(/-/g, "_");
+  const key = "w_" + raw;
+  const dict = I18N[userSettings.lang] || I18N.en;
+  const label = dict[key] || ("🌤️ " + stObj.state);
   const hum = stObj.attributes && stObj.attributes.humidity;
   return hum !== undefined ? `${label} (${hum}%)` : label;
 }
 
 function readDhwTargetTemp(hass) {
+  if (userSettings.dhwOverrideEnabled) {
+    return userSettings.dhwOverrideTemp;
+  }
   const rawModbusTarget = readNum(hass, "sensor.lg_wp_doeltemperatuur_sww", 0);
   if (rawModbusTarget > 25) {
     try { localStorage.setItem("lg_sww_target_cache", String(rawModbusTarget)); } catch (e) {}
@@ -275,10 +1359,8 @@ function readDhwTargetTemp(hass) {
 // =========================================================================
 // CONTROLS, SLIDER & DRAWER INTERACTION
 // =========================================================================
-
-// BEVESTIGINGSPOPUPS VOOR KRITIEKE SCHAKELAARS
 function togglePowerSwitch() {
-  if (!confirm("⚠️ WEET JE HET ZEKER?\n\nWil je de warmtepomp daadwerkelijk aan- of uitzetten?")) {
+  if (!confirm(t("confirmPower"))) {
     return;
   }
   const hass = getHass();
@@ -289,7 +1371,7 @@ function togglePowerSwitch() {
 }
 
 function toggleDhwSwitch() {
-  if (!confirm("⚠️ WEET JE HET ZEKER?\n\nWil je de vrijgave voor het maken van warm tapwater wijzigen?")) {
+  if (!confirm(t("confirmDhw"))) {
     return;
   }
   const hass = getHass();
@@ -345,7 +1427,7 @@ function updateShift(val) {
   const dynamicTargetCv = calculateStooklijnTarget(currentState.outdoor, currentState.shift, currentState.oatLow, currentState.lwtHigh, currentState.oatHigh, currentState.lwtLow);
   document.getElementById("valTargetCv").textContent = dynamicTargetCv.toFixed(1) + " °C";
   if (!currentState.isSwwActive) {
-    document.getElementById("badgeTarget").textContent = "Doel CV: " + dynamicTargetCv.toFixed(1) + " °C";
+    document.getElementById("badgeTarget").textContent = `${t("badgeTargetCh")} ${dynamicTargetCv.toFixed(1)} °C`;
   }
   if (activeKpiKey === "water") {
     drawTopMetricChart();
@@ -380,7 +1462,6 @@ function positionDrawerForActiveCard() {
   if (!activeKpiKey) return;
   const drawer = document.getElementById("detailDrawer");
 
-  // 1. Foutcode-scherm (opent als ALLEREERSTE in het kpiGrid, direct onder de topbar)
   if (activeKpiKey === "error") {
     const kpiGrid = document.getElementById("kpiGrid");
     if (kpiGrid && drawer && kpiGrid.firstElementChild !== drawer) {
@@ -389,7 +1470,6 @@ function positionDrawerForActiveCard() {
     return;
   }
 
-  // 2. Sub-kaarten onder hydraulisch schema (verplaatst buiten de grid)
   if (activeKpiKey.startsWith("sub_")) {
     const schematicCard = document.getElementById("schematicCard");
     if (schematicCard && drawer && schematicCard.nextElementSibling !== drawer) {
@@ -398,7 +1478,6 @@ function positionDrawerForActiveCard() {
     return;
   }
 
-  // 3. Voor de 6 hoofdkaarten: correcte rij berekening
   const idx = ALL_KPI_KEYS.indexOf(activeKpiKey);
   if (idx === -1) return;
 
@@ -407,14 +1486,11 @@ function positionDrawerForActiveCard() {
   let rowEndIdx;
 
   if (cols === 3) {
-    // 3 kolommen: Kaarten 0, 1, 2 openen na kaart 2. Kaarten 3, 4, 5 openen na kaart 5.
     rowEndIdx = idx <= 2 ? 2 : 5;
   } else if (cols === 2) {
-    // 2 kolommen: Rond altijd af op de oneven index (0,1 -> 1), (2,3 -> 3), (4,5 -> 5)
     rowEndIdx = Math.floor(idx / 2) * 2 + 1;
     if (rowEndIdx >= ALL_KPI_KEYS.length) rowEndIdx = ALL_KPI_KEYS.length - 1;
   } else {
-    // Mobiel: Opent altijd direct onder de aangeklikte kaart
     rowEndIdx = idx;
   }
 
@@ -464,9 +1540,8 @@ function selectKpiCard(key) {
     chartView.style.display = "none";
     rangeControls.style.display = "none";
     errorView.style.display = "block";
-    document.getElementById("drawerTitle").textContent = "CH-Foutcodes & Diagnose";
-    // Forceer het aantal codes direct bij het openen om styling te behouden
-    try { document.getElementById("drawerBadge").textContent = `${LG_ERROR_CODES.length} Codes`; } catch(e){}
+    document.getElementById("drawerTitle").textContent = t("drawerErrorTitle");
+    try { document.getElementById("drawerBadge").textContent = `${LG_ERROR_CODES.length} ${t("codesWord")}`; } catch (e) {}
     renderErrorDatabase(document.getElementById("errSearchInput").value || "");
   } else {
     errorView.style.display = "none";
@@ -576,7 +1651,7 @@ async function fetchRealHistory() {
 
 const SCOP_PERIOD_CONFIG = {
   alltime: {
-    lbl: "Altijd",
+    lblKey: "period_alltime",
     thCv: ["sensor.lg_warmte_alltime_cv", "sensor.lg_warmte_totaal_cv", "sensor.lg_warmte_jaar_cv"],
     thDhw: ["sensor.lg_warmte_alltime_sww", "sensor.lg_warmte_totaal_sww", "sensor.lg_warmte_jaar_sww"],
     elEstCv: ["sensor.lg_stroom_alltime_cv", "sensor.lg_stroom_totaal_cv", "sensor.lg_stroom_jaar_cv"],
@@ -584,7 +1659,7 @@ const SCOP_PERIOD_CONFIG = {
     elThinq: ["sensor.lg_thinq_stroom_alltime", "sensor.lg_thinq_stroom_jaar", "sensor.lg_therma_v_7kw_energy_today"]
   },
   jaar: {
-    lbl: "Jaar",
+    lblKey: "period_jaar",
     thCv: ["sensor.lg_warmte_jaar_cv", "sensor.lg_warmte_totaal_cv"],
     thDhw: ["sensor.lg_warmte_jaar_sww", "sensor.lg_warmte_totaal_sww"],
     elEstCv: ["sensor.lg_stroom_jaar_cv", "sensor.lg_stroom_totaal_cv"],
@@ -592,7 +1667,7 @@ const SCOP_PERIOD_CONFIG = {
     elThinq: ["sensor.lg_thinq_stroom_jaar", "sensor.lg_thinq_stroom_alltime", "sensor.lg_therma_v_7kw_energy_today"]
   },
   maand: {
-    lbl: "Maand",
+    lblKey: "period_maand",
     thCv: ["sensor.lg_warmte_maand_cv", "sensor.lg_warmte_jaar_cv"],
     thDhw: ["sensor.lg_warmte_maand_sww", "sensor.lg_warmte_jaar_sww"],
     elEstCv: ["sensor.lg_stroom_maand_cv", "sensor.lg_stroom_jaar_cv"],
@@ -600,7 +1675,7 @@ const SCOP_PERIOD_CONFIG = {
     elThinq: ["sensor.lg_thinq_stroom_maand", "sensor.lg_therma_v_7kw_energy_today"]
   },
   week: {
-    lbl: "Week",
+    lblKey: "period_week",
     thCv: ["sensor.lg_warmte_week_cv", "sensor.lg_warmte_dag_cv"],
     thDhw: ["sensor.lg_warmte_week_sww", "sensor.lg_warmte_dag_sww"],
     elEstCv: ["sensor.lg_stroom_week_cv", "sensor.lg_stroom_dag_cv"],
@@ -608,7 +1683,7 @@ const SCOP_PERIOD_CONFIG = {
     elThinq: ["sensor.lg_thinq_stroom_week", "sensor.lg_therma_v_7kw_energy_today"]
   },
   dag: {
-    lbl: "Dag",
+    lblKey: "period_dag",
     thCv: ["sensor.lg_warmte_dag_cv"],
     thDhw: ["sensor.lg_warmte_dag_sww"],
     elEstCv: ["sensor.lg_stroom_dag_cv"],
@@ -636,7 +1711,6 @@ function computePeriodScopData(hass, periodKey, histDayOpt) {
   const refKwh = Math.max(thTot, elEstTot, 0.1);
   const elThinq = readEnergyKwh(hass, cfg.elThinq, 0, refKwh);
 
-  // Official ThinQ numbers are used as primary electric input for SCOP
   const realElTot = elThinq > 0.005 ? elThinq : elEstTot;
 
   let cvShare;
@@ -661,7 +1735,7 @@ function computePeriodScopData(hass, periodKey, histDayOpt) {
   const scopDhw = (realElDhw > 0.01 && thDhw > 0.01) ? Math.min(9.0, Math.max(0.0, thDhw / realElDhw)) : 0.0;
 
   return {
-    lbl: cfg.lbl,
+    lbl: t(cfg.lblKey),
     thCv,
     thDhw,
     thTot,
@@ -676,11 +1750,11 @@ function computePeriodScopData(hass, periodKey, histDayOpt) {
 
 function updateScopAndBalanceUI(hass, histDayOpt) {
   const stats = computePeriodScopData(hass, selectedScopPeriod, histDayOpt);
-  document.getElementById("lblScopTot").textContent = `SCOP Totaal (${stats.lbl})`;
-  document.getElementById("lblScopCv").textContent = `SCOP CV (${stats.lbl})`;
-  document.getElementById("lblScopDhw").textContent = `SCOP SWW (${stats.lbl})`;
-  document.getElementById("tblHeaderPeriod").textContent = `Energiebalans (${stats.lbl})`;
-  document.getElementById("tblFooterPeriod").textContent = `Totaal ${stats.lbl}`;
+  document.getElementById("lblScopTot").textContent = `${t("scopTotPrefix")} (${stats.lbl})`;
+  document.getElementById("lblScopCv").textContent = `${t("scopCvPrefix")} (${stats.lbl})`;
+  document.getElementById("lblScopDhw").textContent = `${t("scopDhwPrefix")} (${stats.lbl})`;
+  document.getElementById("tblHeaderPeriod").textContent = `${t("tblHeaderPrefix")} (${stats.lbl})`;
+  document.getElementById("tblFooterPeriod").textContent = `${t("tblFooterPrefix")} ${stats.lbl}`;
 
   document.getElementById("valScopTotal").textContent = stats.scopTot.toFixed(2);
   document.getElementById("valScopCv").textContent = stats.scopCv.toFixed(2);
@@ -699,10 +1773,10 @@ function syncFromHass() {
   const badge = document.getElementById("connBadge");
 
   if (hass) {
-    badge.textContent = "LIVE HASS VERBONDEN";
+    badge.textContent = t("connLive");
     badge.className = "conn-badge conn-live";
   } else {
-    badge.textContent = "DEMO PREVIEW MODUS";
+    badge.textContent = t("connDemo");
     badge.className = "conn-badge conn-demo";
   }
 
@@ -793,26 +1867,26 @@ function syncFromHass() {
     isSwwActive
   };
 
-  // Day COP in the Actueel Rendement card: identical to Day SCOP in the SCOP overview below
+  // Day COP in the top card: identical to Day SCOP in the SCOP overview below
   const histDay = calculateHistoryDayEnergy();
   const dayScopStats = computePeriodScopData(hass, "dag", histDay);
   const copDay = dayScopStats.scopTot;
 
   document.getElementById("valCopDay").textContent = copDay.toFixed(2);
 
-  let modeText = "Stand-by";
+  let modeText = t("standby");
   let dotColor = "#64748b";
   if (defrostOn) {
-    modeText = "Defrost Actief";
+    modeText = t("defrostActive");
     dotColor = "#f59e0b";
   } else if (isHeatingActive && isSwwActive) {
-    modeText = "SWW Boiler Laden";
+    modeText = t("dhwCharging");
     dotColor = "#f59e0b";
   } else if (isHeatingActive && !isSwwActive) {
-    modeText = "Vloerverwarming (CV)";
+    modeText = t("ufhCh");
     dotColor = "#14b8a6";
   } else if (pumpOn) {
-    modeText = "Nadraaien / Snuffelcyclus";
+    modeText = t("postRunSniff");
     dotColor = "#38bdf8";
   }
 
@@ -834,7 +1908,7 @@ function syncFromHass() {
   document.getElementById("modeDot").style.background = dotColor;
   document.getElementById("modeDot").style.boxShadow = (isHeatingActive || pumpOn) ? `0 0 8px ${dotColor}` : "none";
 
-  // TOPBAR: FOUTCODE & DIAGNOSE PILL
+  // TOPBAR: ERROR CODE & DIAGNOSTIC PILL
   const valErrorEl = document.getElementById("valError");
   const valErrorUnitEl = document.getElementById("valErrorUnit");
   const errDotEl = document.getElementById("errDot");
@@ -848,9 +1922,12 @@ function syncFromHass() {
     errDotEl.style.boxShadow = "none";
   } else {
     const matchedErr = LG_ERROR_CODES.find((e) => e.code === errCode);
+    const errLoc = matchedErr && typeof getErrItemText === "function"
+      ? getErrItemText(matchedErr, userSettings.lang)
+      : matchedErr;
     valErrorEl.textContent = "CH " + String(errCode).padStart(2, "0");
     valErrorEl.style.color = "var(--rose)";
-    valErrorUnitEl.textContent = (matchedErr ? matchedErr.title : "Storing!") + " ▾";
+    valErrorUnitEl.textContent = (errLoc ? errLoc.title : t("faultAlert")) + " ▾";
     valErrorUnitEl.style.color = "#fda4af";
     errDotEl.style.background = "var(--rose)";
     errDotEl.style.boxShadow = "0 0 8px var(--rose)";
@@ -867,16 +1944,16 @@ function syncFromHass() {
 
   const badgeCop = document.getElementById("badgeCop");
   if (!isHeatingActive) {
-    badgeCop.textContent = "Stand-by";
+    badgeCop.textContent = t("standby");
     badgeCop.style.color = "#94a3b8";
   } else if (cop >= 4.5) {
-    badgeCop.textContent = "Top Rendement";
+    badgeCop.textContent = t("copTop");
     badgeCop.style.color = "#34d399";
   } else if (cop >= 3.0) {
-    badgeCop.textContent = isSwwActive ? "SWW Laden" : "Actief Verwarmen";
+    badgeCop.textContent = isSwwActive ? t("copDhw") : t("copActive");
     badgeCop.style.color = "#5eead4";
   } else {
-    badgeCop.textContent = "Opstart / Laag";
+    badgeCop.textContent = t("copLow");
     badgeCop.style.color = "#fbbf24";
   }
 
@@ -886,76 +1963,76 @@ function syncFromHass() {
   document.getElementById("valDeltaT").textContent = deltaT.toFixed(2) + " K";
   document.getElementById("valTargetCv").textContent = dynamicTargetCv.toFixed(1) + " °C";
   document.getElementById("badgeTarget").textContent = (isHeatingActive && isSwwActive)
-    ? "Doel SWW: " + dhwTarget.toFixed(1) + " °C"
-    : "Doel CV: " + dynamicTargetCv.toFixed(1) + " °C";
+    ? `${t("badgeTargetDhw")} ${dhwTarget.toFixed(1)} °C`
+    : `${t("badgeTargetCh")} ${dynamicTargetCv.toFixed(1)} °C`;
   document.getElementById("barDeltaT").style.width = isHeatingActive
     ? Math.min(100, Math.max(0, (Math.abs(deltaT) / 8.0) * 100)) + "%"
     : "0%";
 
   // CARD 3: 200L BOILER
   document.getElementById("valDhwTemp").textContent = dhwTemp.toFixed(1);
-  document.getElementById("valDhwTarget").textContent = dhwTarget.toFixed(1) + " °C";
+  document.getElementById("valDhwTarget").textContent = dhwTarget.toFixed(1) + " °C" + (userSettings.dhwOverrideEnabled ? " ⚙️" : "");
   const dhwPct = Math.min(100, Math.max(0, ((dhwTemp - 15) / Math.max(10, dhwTarget - 15)) * 100));
   document.getElementById("barDhw").style.width = dhwPct + "%";
 
   const valDhwState = document.getElementById("valDhwState");
   if (isHeatingActive && isSwwActive) {
-    valDhwState.textContent = "Actief Laden 🔥";
+    valDhwState.textContent = t("dhwStateActive");
     valDhwState.style.color = "var(--amber)";
   } else if (!swDhwOn) {
-    valDhwState.textContent = "Vrijgave Uit (Wacht)";
+    valDhwState.textContent = t("dhwStateDisabled");
     valDhwState.style.color = "var(--text-muted)";
   } else {
-    valDhwState.textContent = "Stand-by (Vrijgave Aan)";
+    valDhwState.textContent = t("dhwStateStandby");
     valDhwState.style.color = "var(--text-primary)";
   }
 
-  // CARD 4: BINNEN (MET DAGGEMIDDELDE)
+  // CARD 4: INDOOR
   document.getElementById("valIndoor").textContent = indoor.toFixed(1);
   const indoorPct = Math.min(100, Math.max(0, ((indoor - 15) / 10) * 100));
   document.getElementById("barIndoor").style.width = indoorPct + "%";
   document.getElementById("valIndoorAvg").textContent = indoorAvg.toFixed(1) + " °C";
 
-  // CARD 5: BUITEN + BUIENRADAR
+  // CARD 5: OUTDOOR + WEATHER
   document.getElementById("valOutdoor").textContent = outdoor.toFixed(1);
   const outdoorPct = Math.min(100, Math.max(0, ((outdoor + 15) / 40) * 100));
   document.getElementById("barOutdoor").style.width = outdoorPct + "%";
-  document.getElementById("valOutdoorBounds").textContent = `${oatLow}°C tot ${oatHigh}°C`;
+  document.getElementById("valOutdoorBounds").textContent = `${oatLow}°C ${t("toWord")} ${oatHigh}°C`;
   document.getElementById("valWeather").textContent = readBuienradarWeather(hass);
 
-  // CARD 6: GECONSOLIDEERDE CIRCULATIE & SYSTEEMDRUK
+  // CARD 6: CIRCULATION & SYSTEM PRESSURE
   document.getElementById("valFlow").textContent = flow.toFixed(1);
   document.getElementById("valPressure").textContent = pressure.toFixed(1) + " bar";
-  document.getElementById("valMassFlow").textContent = Math.round(flow * 60) + " L/u";
+  document.getElementById("valMassFlow").textContent = `${Math.round(flow * 60)} ${t("massFlowUnit")}`;
   document.getElementById("barFlow").style.width = Math.min(100, Math.max(0, (flow / 25.0) * 100)) + "%";
 
   const badgePump = document.getElementById("badgePump");
   if (pumpOn && flowProblemOn) {
-    badgePump.textContent = "Stroming Te Laag!";
+    badgePump.textContent = t("pumpLowFlow");
     badgePump.style.color = "var(--rose)";
   } else if (isHeatingActive) {
-    badgePump.textContent = "Compressor & Pomp AAN";
+    badgePump.textContent = t("pumpCompOn");
     badgePump.style.color = "#5eead4";
   } else if (pumpOn) {
-    badgePump.textContent = "Pomp Actief (Snuffel)";
+    badgePump.textContent = t("pumpSniff");
     badgePump.style.color = "#38bdf8";
   } else {
-    badgePump.textContent = "Pomp Uit";
+    badgePump.textContent = t("pumpOff");
     badgePump.style.color = "#94a3b8";
   }
 
   const valValveText = document.getElementById("valValveText");
   if (!isHeatingActive && !pumpOn) {
-    valValveText.textContent = "Stand-by";
+    valValveText.textContent = t("standby");
     valValveText.style.color = "var(--text-muted)";
   } else if (!isHeatingActive && pumpOn) {
-    valValveText.textContent = "Snuffelcyclus (CV)";
+    valValveText.textContent = t("valveSniff");
     valValveText.style.color = "var(--cyan)";
   } else if (isSwwActive) {
-    valValveText.textContent = "SWW Boiler";
+    valValveText.textContent = t("valveDhw");
     valValveText.style.color = "var(--amber)";
   } else {
-    valValveText.textContent = "Vloerverwarming";
+    valValveText.textContent = t("valveUfh");
     valValveText.style.color = "var(--teal)";
   }
 
@@ -963,15 +2040,15 @@ function syncFromHass() {
   const heatBoiler = isHeatingActive && isSwwActive;
   const heatFloor = isHeatingActive && !isSwwActive;
 
-  document.getElementById("svgCompState").textContent = compOn ? "ACTIEF" : "RUST";
+  document.getElementById("svgCompState").textContent = compOn ? t("svgActive") : t("svgIdle");
   document.getElementById("svgCompState").setAttribute("fill", compOn ? "#34d399" : "#64748b");
   document.getElementById("svgPressure").textContent = pressure.toFixed(1) + " bar";
   document.getElementById("svgCompRing").setAttribute("stroke", isHeatingActive ? (heatBoiler ? "#f59e0b" : "#10b981") : "#334155");
   document.getElementById("svgPower").textContent =
     "Th: " + (pThW / 1000).toFixed(2) + " kW | El: " + (pElW / 1000).toFixed(2) + " kW";
   document.getElementById("svgPower").setAttribute("fill", isHeatingActive ? "#10b981" : "#64748b");
-  document.getElementById("svgOutdoor").textContent = "Buiten: " + outdoor.toFixed(1) + " °C";
-  document.getElementById("svgIndoor").textContent = "🏠 Binnentemp: " + indoor.toFixed(1) + " °C";
+  document.getElementById("svgOutdoor").textContent = `${t("svgOutdoorPrefix")} ${outdoor.toFixed(1)} °C`;
+  document.getElementById("svgIndoor").textContent = `${t("svgIndoorPrefix")} ${indoor.toFixed(1)} °C`;
 
   document.getElementById("svgSupply").textContent = "LWT: " + supply.toFixed(1) + "°C";
   document.getElementById("svgSupply").setAttribute("fill", isHeatingActive ? "#f97316" : "#94a3b8");
@@ -984,42 +2061,42 @@ function syncFromHass() {
   const svgValveDir = document.getElementById("svgValveDir");
   const boxValve = document.getElementById("boxValve");
   if (heatBoiler) {
-    svgValveDir.textContent = "→ SWW";
+    svgValveDir.textContent = t("svgValveDhw");
     svgValveDir.setAttribute("fill", "#fbbf24");
     boxValve.setAttribute("stroke", "#f59e0b");
   } else if (heatFloor) {
-    svgValveDir.textContent = "→ CV";
+    svgValveDir.textContent = t("svgValveCh");
     svgValveDir.setAttribute("fill", "#5eead4");
     boxValve.setAttribute("stroke", "#14b8a6");
   } else {
-    svgValveDir.textContent = "RUST";
+    svgValveDir.textContent = t("svgIdle");
     svgValveDir.setAttribute("fill", "#64748b");
     boxValve.setAttribute("stroke", "#334155");
   }
 
   document.getElementById("svgBoilerTemp").textContent = dhwTemp.toFixed(1) + " °C";
-  const boilerStateSub = heatBoiler ? "NU LADEN 🔥" : (!swDhwOn ? "Vrijgave Uit" : "Stand-by");
+  const boilerStateSub = heatBoiler ? t("svgBoilerCharging") : (!swDhwOn ? t("svgBoilerDisabled") : t("standby"));
   document.getElementById("svgBoilerTarget").textContent =
     "Setpoint: " + dhwTarget.toFixed(1) + " °C • " + boilerStateSub;
   document.getElementById("svgSlabInfo").textContent =
-    "ΔT: " + (heatFloor ? deltaT.toFixed(2) : "0.00") + " K • Afgifte: " + (heatFloor ? (pThW / 1000).toFixed(2) : "0.00") + " kW";
+    `ΔT: ${heatFloor ? deltaT.toFixed(2) : "0.00"} K • ${t("svgSlabOutput")} ${heatFloor ? (pThW / 1000).toFixed(2) : "0.00"} kW`;
   document.getElementById("svgSlabInfo").setAttribute("fill", heatFloor ? "#5eead4" : "#94a3b8");
 
   const schemBadge = document.getElementById("schemBadge");
   if (heatBoiler) {
-    schemBadge.textContent = "Actief: 200L SWW Boiler";
+    schemBadge.textContent = t("schemDhw");
     schemBadge.style.color = "#fbbf24";
     schemBadge.style.borderColor = "rgba(245, 158, 11, 0.45)";
   } else if (heatFloor) {
-    schemBadge.textContent = "Actief: Vloerverwarming (CV)";
+    schemBadge.textContent = t("schemCh");
     schemBadge.style.color = "#5eead4";
     schemBadge.style.borderColor = "rgba(20, 184, 166, 0.45)";
   } else if (pumpOn) {
-    schemBadge.textContent = "Stand-by (Snuffelcyclus Actief)";
+    schemBadge.textContent = t("schemSniff");
     schemBadge.style.color = "#38bdf8";
     schemBadge.style.borderColor = "rgba(56, 189, 248, 0.35)";
   } else {
-    schemBadge.textContent = "Stand-by (Geen Warmtevraag)";
+    schemBadge.textContent = t("schemIdle");
     schemBadge.style.color = "#94a3b8";
     schemBadge.style.borderColor = "rgba(148, 163, 184, 0.25)";
   }
@@ -1044,7 +2121,7 @@ function syncFromHass() {
   document.getElementById("flowCvHot").classList.toggle("active", heatFloor);
   document.getElementById("flowCvCold").classList.toggle("active", heatFloor);
 
-  // 3 TEGELS ONDER HET HYDRAULISCH SCHEMA (Waterdruk, Thermisch Vermogen, Elektrisch Verbruik)
+  // 3 SUB-TILES BELOW SCHEMATIC
   document.getElementById("valStripPressure").textContent = pressure.toFixed(1) + " bar";
   document.getElementById("valStripThermal").textContent = (pThW / 1000).toFixed(2) + " kW";
   document.getElementById("valStripElec").textContent = (pElW / 1000).toFixed(2) + " kW";
@@ -1053,6 +2130,8 @@ function syncFromHass() {
 
   drawStooklijn(outdoor, currentState.shift, oatLow, lwtHigh, oatHigh, lwtLow);
   if (activeKpiKey === "error") {
+    document.getElementById("drawerTitle").textContent = t("drawerErrorTitle");
+    try { document.getElementById("drawerBadge").textContent = `${LG_ERROR_CODES.length} ${t("codesWord")}`; } catch (e) {}
     renderErrorDatabase(document.getElementById("errSearchInput").value || "");
   } else if (activeKpiKey) {
     drawTopMetricChart();
@@ -1062,6 +2141,10 @@ function syncFromHass() {
 // =========================================================================
 // INITIALIZATION
 // =========================================================================
+loadUserSettings();
+applyStaticTranslations();
+syncSettingsModalUI();
+
 bindCanvasHover("topMetricCanvas", "top", () => drawTopMetricChart());
 bindCanvasHover("stooklijnChart", "stooklijn", () =>
   drawStooklijn(currentState.outdoor, currentState.shift, currentState.oatLow, currentState.lwtHigh, currentState.oatHigh, currentState.lwtLow)
