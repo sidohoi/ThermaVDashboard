@@ -1,0 +1,370 @@
+- name: "lg_therma_v"
+  type: tcp
+  host: "192.168.1.XXX" # Pas aan naar het IP-adres van jouw Elfin EW11 / Modbus TCP gateway
+  port: 502
+  delay: 2
+  message_wait_milliseconds: 50
+  timeout: 5
+
+  # ==========================================================
+  # BINARY SENSORS (Discrete Inputs 10001+ -> Adres = Register - 10001)
+  # ==========================================================
+  binary_sensors:
+    # 10001: 0 = Stromingswaarde ok | 1 = Stromingswaarde te laag
+    - name: "LG WP Flow Switch Raw"
+      unique_id: lg_wp_flow_switch_raw
+      slave: 33
+      address: 0
+      input_type: discrete_input
+      scan_interval: 10
+
+    # 10002: 0 = Waterpomp UIT | 1 = Waterpomp AAN
+    - name: "LG WP Waterpomp Status"
+      unique_id: lg_wp_waterpomp_status
+      slave: 33
+      address: 1
+      input_type: discrete_input
+      device_class: running
+      scan_interval: 10
+
+    # 10003: 0 = Ext. Waterpomp UIT | 1 = Ext. Waterpomp AAN
+    - name: "LG WP Externe Waterpomp Status"
+      unique_id: lg_wp_ext_waterpomp_status
+      slave: 33
+      address: 2
+      input_type: discrete_input
+      device_class: running
+      scan_interval: 15
+
+    # 10004: 0 = Compressor UIT | 1 = Compressor AAN
+    - name: "LG WP Compressor Status"
+      unique_id: lg_wp_compressor_status
+      slave: 33
+      address: 3
+      input_type: discrete_input
+      device_class: running
+      scan_interval: 10
+
+    # 10005: 0 = Ontdooien UIT | 1 = Ontdooien AAN
+    - name: "LG WP Defrost Status"
+      unique_id: lg_wp_defrost_status
+      slave: 33
+      address: 4
+      input_type: discrete_input
+      device_class: running
+      scan_interval: 10
+
+    # 10006: 0 = SWW inactief | 1 = SWW actief (SWW Thermaal Aan/Uit)
+    - name: "LG WP SWW Verwarmen Status"
+      unique_id: lg_wp_sww_verwarmen_status
+      slave: 33
+      address: 5
+      input_type: discrete_input
+      device_class: heat
+      scan_interval: 10
+
+    # 10007: 0 = Desinfectie inactief | 1 = Desinfectie actief
+    - name: "LG WP SWW Desinfectie Status"
+      unique_id: lg_wp_sww_desinfectie_status
+      slave: 33
+      address: 6
+      input_type: discrete_input
+      device_class: running
+      scan_interval: 30
+
+    # 10008: 0 = Stiltemodus inactief | 1 = Stiltemodus actief
+    - name: "LG WP Stiltemodus Status"
+      unique_id: lg_wp_stiltemodus_status
+      slave: 33
+      address: 7
+      input_type: discrete_input
+      scan_interval: 15
+
+    # 10009: 0 = Geen koeling | 1 = Koeling bedrijfsmodus
+    - name: "LG WP Koeling Status"
+      unique_id: lg_wp_koeling_status
+      slave: 33
+      address: 8
+      input_type: discrete_input
+      device_class: cold
+      scan_interval: 15
+
+    # 10011: Back-up verwarming (stap 1) status (0 = UIT | 1 = AAN)
+    - name: "LG WP Backup Heater Trap 1"
+      unique_id: lg_wp_backup_heater_1
+      slave: 33
+      address: 10
+      input_type: discrete_input
+      device_class: heat
+      scan_interval: 15
+
+    # 10012: Back-up verwarming (stap 2) status (0 = UIT | 1 = AAN)
+    - name: "LG WP Backup Heater Trap 2"
+      unique_id: lg_wp_backup_heater_2
+      slave: 33
+      address: 11
+      input_type: discrete_input
+      device_class: heat
+      scan_interval: 15
+
+    # 10013: DHW boost heater status (0 = UIT | 1 = AAN)
+    - name: "LG WP SWW Boost Heater Status"
+      unique_id: lg_wp_sww_boost_heater_status
+      slave: 33
+      address: 12
+      input_type: discrete_input
+      device_class: heat
+      scan_interval: 15
+
+    # 10014: Status storing status (0 = Geen fout | 1 = Foutstatus)
+    - name: "LG WP Storing Status"
+      unique_id: lg_wp_storing_status
+      slave: 33
+      address: 13
+      input_type: discrete_input
+      device_class: problem
+      scan_interval: 15
+
+  # ==========================================================
+  # SWITCHES (Coils 00001+ -> Adres = Register - 00001)
+  # ==========================================================
+  switches:
+    # 00001: Inschakelen/uitschakelen (verwarming/koeling)
+    - name: "LG WP Aan Uit"
+      unique_id: lg_wp_aan_uit
+      slave: 33
+      address: 0
+      write_type: coil
+      verify:
+        input_type: coil
+        address: 0
+        delay: 2
+
+    # 00002: Inschakelen/uitschakelen (SWW)
+    - name: "LG WP SWW Boiler Vrijgave"
+      unique_id: lg_wp_sww_vrijgave
+      slave: 33
+      address: 1
+      write_type: coil
+      verify:
+        input_type: coil
+        address: 1
+        delay: 2
+
+    # 00003: Stiltemodus instelling
+    - name: "LG WP Silent Mode"
+      unique_id: lg_wp_silent_mode
+      slave: 33
+      address: 2
+      write_type: coil
+      verify:
+        input_type: coil
+        address: 2
+        delay: 2
+
+    # 00004: Trigger Desinfectie gebruik
+    - name: "LG WP Trigger Desinfectie"
+      unique_id: lg_wp_trigger_desinfectie
+      slave: 33
+      address: 3
+      write_type: coil
+      verify:
+        input_type: coil
+        address: 3
+        delay: 2
+
+  # ==========================================================
+  # SENSORS (Input Registers 30001+ -> Adres = Register - 30001)
+  # ==========================================================
+  sensors:
+    # 30001: Storing code
+    - name: "LG WP Foutcode"
+      unique_id: lg_wp_foutcode
+      slave: 33
+      address: 0
+      input_type: input
+      data_type: uint16
+      scan_interval: 30
+
+    # 30002: ODU-bedrijfscyclus (0 = Stand-by / 1 = Koeling / 2 = Verwarming)
+    - name: "LG WP Bedrijfscyclus"
+      unique_id: lg_wp_bedrijfscyclus
+      slave: 33
+      address: 1
+      input_type: input
+      data_type: uint16
+      scan_interval: 15
+
+    # 30003: Waterinlaat temp. [0.1 °C x 10]
+    - name: "LG WP Retourtemperatuur"
+      unique_id: lg_wp_retourtemperatuur
+      slave: 33
+      address: 2
+      input_type: input
+      data_type: int16
+      scale: 0.1
+      offset: 0
+      precision: 1
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      scan_interval: 10
+
+    # 30004: Wateruitlaat temp. [0.1 °C x 10]
+    - name: "LG WP Aanvoertemperatuur"
+      unique_id: lg_wp_aanvoertemperatuur
+      slave: 33
+      address: 3
+      input_type: input
+      data_type: int16
+      scale: 0.1
+      offset: 0
+      precision: 1
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      scan_interval: 10
+
+    # 30005: Back-up verwarming outlaattemp. [0.1 °C x 10]
+    - name: "LG WP Backup Heater Uittrede Temp"
+      unique_id: lg_wp_backup_heater_temp
+      slave: 33
+      address: 4
+      input_type: input
+      data_type: int16
+      scale: 0.1
+      precision: 1
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      scan_interval: 15
+
+    # 30006: SWW tank water temp. [0.1 °C x 10]
+    - name: "LG WP SWW Boilertemperatuur"
+      unique_id: lg_wp_sww_boilertemperatuur
+      slave: 33
+      address: 5
+      input_type: input
+      data_type: int16
+      scale: 0.1
+      precision: 1
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      scan_interval: 15
+
+    # 30008: Kamerluchttemp. (Circuit 1) [0.1 °C x 10]
+    - name: "LG WP Kamertemperatuur"
+      unique_id: lg_wp_kamertemperatuur
+      slave: 33
+      address: 7
+      input_type: input
+      data_type: int16
+      scale: 0.1
+      precision: 1
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      scan_interval: 15
+
+    # 30009: Huidige stroomsnelheid [0.1 LPM x 10]
+    - name: "LG WP Flow Debiet"
+      unique_id: lg_wp_flow_debiet
+      slave: 33
+      address: 8
+      input_type: input
+      data_type: uint16
+      scale: 0.1
+      precision: 1
+      unit_of_measurement: "L/min"
+      state_class: measurement
+      scan_interval: 10
+
+    # 30013: Buitenluchttemp. [0.1 °C x 10]
+    - name: "LG WP Buitentemperatuur"
+      unique_id: lg_wp_buitentemperatuur
+      slave: 33
+      address: 12
+      input_type: input
+      data_type: int16
+      scale: 0.1
+      precision: 1
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      scan_interval: 15
+
+    # 30014: Waterdruk [0.1 bar x 10] (Stond voorheen foutief als Compressor Frequentie)
+    - name: "LG WP Waterdruk"
+      unique_id: lg_wp_waterdruk
+      slave: 33
+      address: 13
+      input_type: input
+      data_type: uint16
+      scale: 0.1
+      precision: 1
+      unit_of_measurement: "bar"
+      device_class: pressure
+      state_class: measurement
+      scan_interval: 30
+
+# ==========================================================
+    # HOLDING REGISTERS (40001+ -> Adres = Register - 40001)
+    # ==========================================================
+    # 40001: Bedrijfsmodus (0 = Koeling / 3 = Auto / 4 = Verwarming)
+    - name: "LG WP Bedrijfsmodus Instelling"
+      unique_id: lg_wp_bedrijfsmodus_instelling
+      slave: 33
+      address: 0
+      input_type: holding
+      data_type: uint16
+      scan_interval: 30
+
+    # 40002: Regelmethode (0 = Wateruitlaat / 1 = Waterinlaat / 2 = Kamerlucht)
+    - name: "LG WP Regelmethode"
+      unique_id: lg_wp_regelmethode
+      slave: 33
+      address: 1
+      input_type: holding
+      data_type: uint16
+      scan_interval: 60
+
+    # 40003: Doeltemp. (verwarming/koeling) Circuit 1 [0.1 °C x 10]
+    - name: "LG WP Doeltemperatuur CV"
+      unique_id: lg_wp_doeltemperatuur_cv
+      slave: 33
+      address: 2
+      input_type: holding
+      data_type: int16
+      scale: 0.1
+      precision: 1
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      scan_interval: 15
+
+    # 40005: Verschuivingswaarde (doel) automatische modus Circuit 1 [1K]
+    - name: "LG WP Stooklijn Shift"
+      unique_id: lg_wp_stooklijn_shift
+      slave: 33
+      address: 4
+      input_type: holding
+      data_type: int16
+      scale: 1
+      unit_of_measurement: "K"
+      state_class: measurement
+      scan_interval: 15
+
+    # 40009: DHW Doel temp. [0.1 °C x 10]
+    - name: "LG WP Doeltemperatuur SWW"
+      unique_id: lg_wp_doeltemperatuur_sww
+      slave: 33
+      address: 8
+      input_type: holding
+      data_type: int16
+      scale: 0.1
+      precision: 1
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      scan_interval: 15
