@@ -26,6 +26,14 @@ input_number:
     unit_of_measurement: "°C"
     icon: mdi:water-boiler
 
+  lg_wp_sww_boiler_volume:
+    name: "LG WP SWW Boiler Volume"
+    min: 50
+    max: 500
+    step: 10
+    unit_of_measurement: "L"
+    icon: mdi:water-boiler-auto
+
   lg_stooklijn_buiten_laag:
     name: "Stooklijn Buiten Temp (Laag)"
     min: -20

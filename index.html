@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LG Therma V R290 Telemetry</title>
-  <link rel="stylesheet" href="styles.css?v=12" />
+  <link rel="stylesheet" href="styles.css?v=13" />
 </head>
 <body>
   <!-- FLOATING CHART HOVER TOOLTIP -->
@@ -79,7 +79,31 @@
         </div>
       </div>
 
-      <!-- 4. DHW / SWW GOAL TEMPERATURE OVERRULE -->
+      <!-- 5. DHW TANK SIZE (VOLUME IN LITERS) -->
+      <div class="settings-group">
+        <div class="settings-group-title">
+          <span id="cfgDhwVolTitle">🛢️ DHW Tank Size (Volume)</span>
+        </div>
+        <div class="settings-group-desc" id="cfgDhwVolDesc">
+          Set the volume of your domestic hot water (DHW) tank in liters (Default: 200 L).
+        </div>
+        <div class="dhw-override-controls" id="dhwVolRow">
+          <button class="btn-step" onclick="stepDhwTankVolume(-10)">−</button>
+          <input
+            type="range"
+            id="dhwVolSlider"
+            min="60"
+            max="500"
+            step="10"
+            value="200"
+            oninput="updateDhwTankVolume(this.value)"
+          />
+          <button class="btn-step" onclick="stepDhwTankVolume(10)">+</button>
+          <span class="dhw-override-val" id="dhwVolLabel">200 L</span>
+        </div>
+      </div>
+
+      <!-- 6. DHW / SWW GOAL TEMPERATURE OVERRULE -->
       <div class="settings-group">
         <div class="settings-group-title">
           <span id="cfgDhwTitle">🚿 DHW Target Temperature Overrule</span>
@@ -641,8 +665,8 @@
   </div>
 
   <!-- SCRIPTS IN VOLGORDE VAN AFHANKELIJKHEID -->
-  <script src="error-codes.js?v=12"></script>
-  <script src="charts.js?v=12"></script>
-  <script src="app.js?v=12"></script>
+  <script src="error-codes.js?v=13"></script>
+  <script src="charts.js?v=13"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>

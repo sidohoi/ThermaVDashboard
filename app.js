@@ -28,6 +28,7 @@ let userSettings = {
   modelCapacity: "7",        // "7", "9", or "12" (kW)
   curveControl: "inlet",     // "inlet" (Return EWT) or "outlet" (Supply LWT)
   hydronicTopology: "direct",// "direct", "serial", or "parallel"
+  dhwTankVolume: 200,        // Domestic hot water tank size in Liters (60-500 L)
   dhwOverrideEnabled: false, // false = Auto (Sensor), true = Overrule (Manual)
   dhwOverrideTemp: 50.0,     // Manual DHW goal temperature (°C)
   oatLow: -10,
@@ -50,6 +51,9 @@ function loadUserSettings() {
       }
       if (parsed.hydronicTopology === "direct" || parsed.hydronicTopology === "serial" || parsed.hydronicTopology === "parallel") {
         userSettings.hydronicTopology = parsed.hydronicTopology;
+      }
+      if (!isNaN(parseInt(parsed.dhwTankVolume, 10))) {
+        userSettings.dhwTankVolume = Math.min(500, Math.max(60, Math.round(parseInt(parsed.dhwTankVolume, 10) / 10) * 10));
       }
       if (typeof parsed.dhwOverrideEnabled === "boolean") {
         userSettings.dhwOverrideEnabled = parsed.dhwOverrideEnabled;
@@ -249,6 +253,8 @@ const I18N = {
     cfgTopoDirect: "Direct Heating",
     cfgTopoSerial: "Serial Buffer",
     cfgTopoParallel: "Parallel Buffer",
+    cfgDhwVolTitle: "🛢️ DHW Tank Size (Volume)",
+    cfgDhwVolDesc: "Set the volume of your domestic hot water (DHW) tank in liters (Default: 200 L).",
     cfgDhwTitle: "🚿 DHW Target Temperature Overrule",
     cfgDhwDesc: "Use the automatic Modbus sensor value or manually overrule the DHW (SWW) target temperature.",
     cfgDhwAuto: "Auto (Sensor)",
@@ -445,6 +451,8 @@ const I18N = {
     cfgTopoDirect: "Directe Afgifte",
     cfgTopoSerial: "Serie Buffervat",
     cfgTopoParallel: "Parallel Buffervat",
+    cfgDhwVolTitle: "🛢️ SWW Boiler Inhoud (Volume)",
+    cfgDhwVolDesc: "Stel de inhoud van je tapwaterboiler (SWW) in liters in (Standaard: 200 L).",
     cfgDhwTitle: "🚿 SWW Doeltemperatuur Overrulen",
     cfgDhwDesc: "Gebruik de automatische Modbus-sensorwaarde of overschrijf handmatig de ingestelde SWW-doeltemperatuur.",
     cfgDhwAuto: "Auto (Sensor)",
@@ -639,6 +647,8 @@ const I18N = {
     cfgTopoDirect: "Direktheizkreis",
     cfgTopoSerial: "Reihenpuffer",
     cfgTopoParallel: "Parallelpuffer",
+    cfgDhwVolTitle: "🛢️ Warmwasserspeicher-Größe (Volumen)",
+    cfgDhwVolDesc: "Stellen Sie das Volumen Ihres Warmwasserspeichers (WW) in Litern ein (Standard: 200 L).",
     cfgDhwTitle: "🚿 WW-Solltemperatur Überschreiben",
     cfgDhwDesc: "Automatischen Modbus-Sensorwert verwenden oder die WW-Solltemperatur manuell überschreiben.",
     cfgDhwAuto: "Auto (Sensor)",
@@ -833,6 +843,8 @@ const I18N = {
     cfgTopoDirect: "Chauffage Direct",
     cfgTopoSerial: "Tampon en Série",
     cfgTopoParallel: "Tampon Parallèle",
+    cfgDhwVolTitle: "🛢️ Capacité du Ballon ECS (Volume)",
+    cfgDhwVolDesc: "Réglez le volume de votre ballon d'eau chaude sanitaire (ECS) en litres (Par défaut : 200 L).",
     cfgDhwTitle: "🚿 Forçage Température Cible ECS",
     cfgDhwDesc: "Utiliser la sonde Modbus automatique ou définir manuellement la température cible ECS.",
     cfgDhwAuto: "Auto (Sonde)",
@@ -1027,6 +1039,8 @@ const I18N = {
     cfgTopoDirect: "Calefacción Directa",
     cfgTopoSerial: "Inercia en Serie",
     cfgTopoParallel: "Inercia en Paralelo",
+    cfgDhwVolTitle: "🛢️ Tamaño del Depósito ACS (Volumen)",
+    cfgDhwVolDesc: "Ajuste el volumen de su depósito de agua caliente sanitaria (ACS) en litros (Predeterminado: 200 L).",
     cfgDhwTitle: "🚿 Anular Temperatura Objetivo ACS",
     cfgDhwDesc: "Usar el valor automático del sensor Modbus o fijar manualmente la temperatura objetivo de ACS.",
     cfgDhwAuto: "Auto (Sensor)",
@@ -1065,7 +1079,12 @@ const I18N = {
 
 function t(key) {
   const dict = I18N[userSettings.lang] || I18N.en;
-  return dict[key] !== undefined ? dict[key] : (I18N.en[key] || key);
+  const raw = dict[key] !== undefined ? dict[key] : (I18N.en[key] || key);
+  if (key === "titleCardDhw" || key === "badgeDhwTop" || key === "schemDhw" || key === "svgBoilerTitle") {
+    const vol = userSettings.dhwTankVolume || 200;
+    return String(raw).replace(/200/g, String(vol));
+  }
+  return raw;
 }
 
 let currentState = {
@@ -1271,6 +1290,12 @@ function syncSettingsModalUI() {
     if (b) b.classList.toggle("active", (userSettings.hydronicTopology || "direct") === topo);
   });
 
+  const volVal = userSettings.dhwTankVolume || 200;
+  const volSlider = document.getElementById("dhwVolSlider");
+  if (volSlider) volSlider.value = volVal;
+  const volLbl = document.getElementById("dhwVolLabel");
+  if (volLbl) volLbl.textContent = volVal + " L";
+
   const btnAuto = document.getElementById("btnDhwMode_auto");
   const btnManual = document.getElementById("btnDhwMode_manual");
   if (btnAuto) btnAuto.classList.toggle("active", !userSettings.dhwOverrideEnabled);
@@ -1395,6 +1420,8 @@ function applyStaticTranslations() {
   setTxt("btnTopo_direct", "cfgTopoDirect");
   setTxt("btnTopo_serial", "cfgTopoSerial");
   setTxt("btnTopo_parallel", "cfgTopoParallel");
+  setTxt("cfgDhwVolTitle", "cfgDhwVolTitle");
+  setTxt("cfgDhwVolDesc", "cfgDhwVolDesc");
   setTxt("cfgDhwTitle", "cfgDhwTitle");
   setTxt("cfgDhwDesc", "cfgDhwDesc");
   setTxt("btnDhwMode_auto", "cfgDhwAuto");
@@ -1486,6 +1513,30 @@ function setHydronicTopology(topo) {
     } catch (e) {}
   }
   syncFromHass();
+}
+
+function updateDhwTankVolume(val) {
+  const num = parseInt(val, 10);
+  if (isNaN(num)) return;
+  lastLocalSettingWriteTs = Date.now();
+  userSettings.dhwTankVolume = Math.min(500, Math.max(60, Math.round(num / 10) * 10));
+  saveUserSettings();
+  syncSettingsModalUI();
+  applyStaticTranslations();
+  const hass = getHass();
+  if (hass) {
+    try {
+      hass.callService("input_number", "set_value", {
+        entity_id: "input_number.lg_wp_sww_boiler_volume",
+        value: userSettings.dhwTankVolume
+      });
+    } catch (e) {}
+  }
+  syncFromHass();
+}
+
+function stepDhwTankVolume(delta) {
+  updateDhwTankVolume((userSettings.dhwTankVolume || 200) + delta);
 }
 
 function setDhwOverrideMode(enabled) {
@@ -1594,6 +1645,18 @@ function syncSettingsFromHassEntities(hass) {
     userSettings.hydronicTopology = haTopo;
     changed = true;
     needStaticRefresh = true;
+  }
+
+  if (hass.states["input_number.lg_wp_sww_boiler_volume"]) {
+    const haVol = readNum(hass, "input_number.lg_wp_sww_boiler_volume", 0);
+    if (haVol >= 60 && haVol <= 500) {
+      const clampedVol = Math.round(haVol / 10) * 10;
+      if (clampedVol !== userSettings.dhwTankVolume) {
+        userSettings.dhwTankVolume = clampedVol;
+        changed = true;
+        needStaticRefresh = true;
+      }
+    }
   }
 
   if (hass.states["input_boolean.lg_wp_sww_setpoint_overrule"]) {

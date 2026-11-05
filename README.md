@@ -2,9 +2,8 @@
 
 An interactive, real-time **Home Assistant** telemetry and control dashboard for the **LG Therma V R290 Monobloc** heat pump (connected via any **RS485-to-Modbus TCP gateway** such as **Elfin EW11** or **Waveshare**, with optional **LG ThinQ** or external smart kWh meter integration and a built-in thermodynamic power fallback).
 
-> **🖥️ Live Interactive Demo**
-https://sidohoi.github.io/ThermaVDashboard/
-
+> **🖥️ Live Interactive Demo (100% Browser-Side / GitHub Pages):**
+> When opened outside Home Assistant (for example via **GitHub Pages** at `https://<your-username>.github.io/<repo-name>/`), the dashboard automatically runs in **`DEMO PREVIEW MODE`** with simulated live telemetry, 24-hour expandable step-charts, seasonal SCOP data, clickable topbar switches (`⚡ HP On/Off`, `🚿 DHW Enable`, `🌙 Silent Mode`), and the full `⚙️` Configuration modal — with zero connection to any private server.
 
 ---
 
@@ -47,6 +46,7 @@ Select your language below to jump directly to the full documentation and instal
   - **Heat Pump Model Capacity (`input_select.lg_wp_vermogen_model`):** Select **7 kW**, **9 kW**, or **12 kW** (calibrates the thermodynamic electrical power model, flow scaling, and dashboard labels).
   - **Heating Curve Control (`input_select.lg_wp_stooklijn_sturing`):** Choose **Inlet / Return (EWT)** or **Outlet / Supply (LWT)**.
   - **Hydronic System Setup (`input_select.lg_wp_hydraulisch_schema`):** Switch between **Direct Heating**, **Serial Buffer**, or **Parallel Buffer** (updates the live animated SVG schematic).
+  - **DHW Tank Size (`input_number.lg_wp_sww_boiler_volume`):** Set the volume of your domestic hot water tank (`60–500 L` in `10 L` steps, default `200 L`).
   - **DHW Target Overrule (`input_boolean.lg_wp_sww_setpoint_overrule` & `input_number.lg_wp_sww_setpoint_input`):** Auto (Modbus sensor) or manual override (`35–65 °C`).
   - **Heating Curve Parameters (`input_number.lg_stooklijn_*`):** Configure Cold Design Temp & Mild Footpoint sliders directly in the modal.
 
