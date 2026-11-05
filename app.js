@@ -1090,6 +1090,7 @@ let currentState = {
 
 let historySeries = {
   hasRealData: false,
+  demoSig: "",
   supply: [],
   ret: [],
   pressure: [],
@@ -1102,6 +1103,134 @@ let historySeries = {
   flow: [],
   dhw: []
 };
+
+// Interactive state used only when running outside Home Assistant (DEMO PREVIEW MODE)
+const demoState = {
+  swPowerOn: true,
+  swDhwOn: true,
+  swSilentOn: false,
+  dhwMode: 0, // 0 = DHW Enabled (Standby, CH Heating), 1 = DHW Charging Active, 2 = DHW Disabled
+  isSwwActive: false
+};
+
+function ensureDemoHistory() {
+  if (historySeries.hasRealData) return;
+  const oatLow = userSettings.oatLow !== undefined ? userSettings.oatLow : -10;
+  const lwtHigh = userSettings.lwtHigh !== undefined ? userSettings.lwtHigh : 35;
+  const oatHigh = userSettings.oatHigh !== undefined ? userSettings.oatHigh : 15;
+  const lwtLow = userSettings.lwtLow !== undefined ? userSettings.lwtLow : 25;
+  const capNum = parseInt(userSettings.modelCapacity || "7", 10);
+  const capScale = capNum >= 12 ? 1.62 : (capNum >= 9 ? 1.26 : 1.0);
+  const curveMode = userSettings.curveControl || "inlet";
+  const shiftVal = currentState.shift || 0;
+
+  const sig = `${capNum}|${curveMode}|${oatLow}|${lwtHigh}|${oatHigh}|${lwtLow}|${shiftVal}`;
+  if (historySeries.demoSig === sig && historySeries.supply.length > 10) return;
+  historySeries.demoSig = sig;
+
+  const supply = [];
+  const ret = [];
+  const pressure = [];
+  const thermal = [];
+  const elec = [];
+  const indoor = [];
+  const outdoor = [];
+  const shift = [];
+  const cop = [];
+  const flow = [];
+  const dhw = [];
+
+  for (let i = 0; i <= 96; i++) {
+    const hr = +(i * 0.25).toFixed(2);
+    // Realistic 24h outdoor curve (dips to ~3.6°C early morning, peaks ~8.6°C afternoon, ends at 6.5°C)
+    const oat = +(6.1 - 2.4 * Math.cos(((hr - 3.5) / 24) * Math.PI * 2) + 0.35 * Math.sin(hr * 0.8)).toFixed(1);
+    const ind = +(20.5 + 0.2 * Math.sin(((hr - 8) / 24) * Math.PI * 2)).toFixed(1);
+
+    let baseTarget;
+    if (oat <= oatLow) baseTarget = lwtHigh;
+    else if (oat >= oatHigh) baseTarget = lwtLow;
+    else baseTarget = lwtHigh - ((oat - oatLow) / (oatHigh - oatLow)) * (lwtHigh - lwtLow);
+    const targetCv = baseTarget + shiftVal;
+
+    // 200L DHW tank profile with morning draw (hr=7.5) and afternoon reheat cycle (hr=14.0..14.75)
+    let dhwVal;
+    if (hr < 7.0) {
+      dhwVal = 49.4 - hr * 0.22;
+    } else if (hr < 8.0) {
+      dhwVal = 47.8 - (hr - 7.0) * 3.2;
+    } else if (hr < 14.0) {
+      dhwVal = 44.6 - (hr - 8.0) * 0.25;
+    } else if (hr <= 14.75) {
+      dhwVal = 43.1 + ((hr - 14.0) / 0.75) * 7.5;
+    } else {
+      dhwVal = 50.6 - ((hr - 14.75) / 9.25) * 2.4;
+    }
+    dhwVal = +dhwVal.toFixed(1);
+
+    const isStandbyWindow = hr >= 11.75 && hr <= 12.75;
+    const isDhwWindow = hr >= 14.0 && hr <= 14.75;
+
+    let fVal, supVal, retVal, thVal, elVal, copVal, pVal;
+    if (isStandbyWindow) {
+      fVal = 0.0;
+      supVal = +(targetCv - 1.1).toFixed(1);
+      retVal = +(targetCv - 1.4).toFixed(1);
+      thVal = 0.0;
+      elVal = 0.01;
+      copVal = 0.0;
+      pVal = 1.7;
+    } else if (isDhwWindow) {
+      fVal = +(18.4 * capScale).toFixed(1);
+      const dT = 3.55;
+      supVal = +(dhwVal + 4.2).toFixed(1);
+      retVal = +(supVal - dT).toFixed(1);
+      thVal = +(((fVal / 60.0) * 4.186 * dT)).toFixed(2);
+      copVal = +(3.42 - (dhwVal - 43.0) * 0.035).toFixed(2);
+      elVal = +(thVal / copVal).toFixed(2);
+      pVal = 1.9;
+    } else {
+      fVal = +((16.2 + 0.7 * Math.cos(hr * 0.55)) * capScale).toFixed(1);
+      const dT = +(3.12 + 0.28 * Math.cos(((hr - 4) / 24) * Math.PI * 2)).toFixed(2);
+      const wave = 0.2 * Math.sin(hr * 0.9);
+      if (curveMode === "outlet") {
+        supVal = +(targetCv + 0.15 + wave).toFixed(1);
+        retVal = +(supVal - dT).toFixed(1);
+      } else {
+        retVal = +(targetCv + 0.15 + wave).toFixed(1);
+        supVal = +(retVal + dT).toFixed(1);
+      }
+      const actualDt = +(supVal - retVal).toFixed(2);
+      thVal = +(((fVal / 60.0) * 4.186 * actualDt)).toFixed(2);
+      copVal = +(4.86 + (oat - 6.0) * 0.08 - (supVal - 29.0) * 0.04 - (capNum - 7) * 0.03).toFixed(2);
+      elVal = +(thVal / copVal).toFixed(2);
+      pVal = 1.8;
+    }
+
+    outdoor.push({ hr, val: oat });
+    indoor.push({ hr, val: ind });
+    shift.push({ hr, val: shiftVal });
+    dhw.push({ hr, val: dhwVal });
+    flow.push({ hr, val: fVal });
+    supply.push({ hr, val: supVal });
+    ret.push({ hr, val: retVal });
+    thermal.push({ hr, val: thVal });
+    elec.push({ hr, val: elVal });
+    cop.push({ hr, val: copVal });
+    pressure.push({ hr, val: pVal });
+  }
+
+  historySeries.outdoor = outdoor;
+  historySeries.indoor = indoor;
+  historySeries.shift = shift;
+  historySeries.dhw = dhw;
+  historySeries.flow = flow;
+  historySeries.supply = supply;
+  historySeries.ret = ret;
+  historySeries.thermal = thermal;
+  historySeries.elec = elec;
+  historySeries.cop = cop;
+  historySeries.pressure = pressure;
+}
 
 // =========================================================================
 // SETTINGS MODAL & LANGUAGE APPLICATION
@@ -1727,22 +1856,33 @@ function readDhwTargetTemp(hass) {
 // CONTROLS, SLIDER & DRAWER INTERACTION
 // =========================================================================
 function togglePowerSwitch() {
+  const hass = getHass();
+  if (!hass) {
+    demoState.swPowerOn = !demoState.swPowerOn;
+    syncFromHass();
+    return;
+  }
   if (!confirm(t("confirmPower"))) {
     return;
   }
-  const hass = getHass();
-  if (!hass) return;
   const eid = resolveEntityId(hass, ["switch.lg_wp_aan_uit"]);
   hass.callService("switch", "toggle", { entity_id: eid });
   setTimeout(syncFromHass, 350);
 }
 
 function toggleDhwSwitch() {
+  const hass = getHass();
+  if (!hass) {
+    // In Demo Mode: cycle 0 (DHW Enabled, CH Heating) -> 1 (DHW Charging Active) -> 2 (DHW Disabled)
+    demoState.dhwMode = ((demoState.dhwMode || 0) + 1) % 3;
+    demoState.swDhwOn = demoState.dhwMode !== 2;
+    demoState.isSwwActive = demoState.dhwMode === 1;
+    syncFromHass();
+    return;
+  }
   if (!confirm(t("confirmDhw"))) {
     return;
   }
-  const hass = getHass();
-  if (!hass) return;
   const eid = resolveEntityId(hass, [
     "switch.lg_wp_sww_boiler_vrijgave",
     "switch.lg_wp_sww_vrijgave"
@@ -1753,7 +1893,11 @@ function toggleDhwSwitch() {
 
 function toggleSilentSwitch() {
   const hass = getHass();
-  if (!hass) return;
+  if (!hass) {
+    demoState.swSilentOn = !demoState.swSilentOn;
+    syncFromHass();
+    return;
+  }
   const eid = resolveEntityId(hass, ["switch.lg_wp_silent_mode"]);
   hass.callService("switch", "toggle", { entity_id: eid });
   setTimeout(syncFromHass, 350);
@@ -1789,6 +1933,10 @@ function updateShift(val) {
     });
   }
   currentState.shift = numVal;
+  if (!hass) {
+    syncFromHass();
+    return;
+  }
   drawStooklijn(currentState.outdoor, currentState.shift, currentState.oatLow, currentState.lwtHigh, currentState.oatHigh, currentState.lwtLow);
 
   const dynamicTargetCv = calculateStooklijnTarget(currentState.outdoor, currentState.shift, currentState.oatLow, currentState.lwtHigh, currentState.oatHigh, currentState.lwtLow);
@@ -2063,6 +2211,39 @@ function computePeriodScopData(hass, periodKey, histDayOpt) {
   const cfg = SCOP_PERIOD_CONFIG[periodKey] || SCOP_PERIOD_CONFIG.jaar;
   const histDay = histDayOpt || calculateHistoryDayEnergy();
 
+  if (!hass && periodKey !== "dag") {
+    const capNum = parseInt(userSettings.modelCapacity || "7", 10);
+    const capScale = capNum >= 12 ? 1.62 : (capNum >= 9 ? 1.26 : 1.0);
+    const demoPeriods = {
+      week:    { thCv: 318.4,   thDhw: 49.2,   scopCv: 4.92, scopDhw: 3.38 },
+      maand:   { thCv: 1295.0,  thDhw: 208.0,  scopCv: 4.84, scopDhw: 3.34 },
+      jaar:    { thCv: 8420.0,  thDhw: 1890.0, scopCv: 4.76, scopDhw: 3.31 },
+      alltime: { thCv: 14650.0, thDhw: 3240.0, scopCv: 4.79, scopDhw: 3.33 }
+    };
+    const dp = demoPeriods[periodKey] || demoPeriods.jaar;
+    const thCv = +(dp.thCv * capScale).toFixed(1);
+    const thDhw = +(dp.thDhw * capScale).toFixed(1);
+    const thTot = thCv + thDhw;
+    const scopCv = +(dp.scopCv - (capNum - 7) * 0.02).toFixed(2);
+    const scopDhw = dp.scopDhw;
+    const realElCv = +(thCv / scopCv).toFixed(1);
+    const realElDhw = +(thDhw / scopDhw).toFixed(1);
+    const realElTot = realElCv + realElDhw;
+    const scopTot = +(thTot / realElTot).toFixed(2);
+    return {
+      lbl: t(cfg.lblKey),
+      thCv,
+      thDhw,
+      thTot,
+      realElCv,
+      realElDhw,
+      realElTot,
+      scopTot,
+      scopCv,
+      scopDhw
+    };
+  }
+
   let thCv = readEnergyKwh(hass, cfg.thCv, 0);
   let thDhw = readEnergyKwh(hass, cfg.thDhw, 0);
   if (thCv < 0.01 && histDay.thCvKwh > 0.01) thCv = histDay.thCvKwh;
@@ -2146,37 +2327,8 @@ function syncFromHass() {
   } else {
     badge.textContent = t("connDemo");
     badge.className = "conn-badge conn-demo";
+    ensureDemoHistory();
   }
-
-  const compOn = readStr(hass, "binary_sensor.lg_wp_compressor_status", "off") === "on";
-  const pressure = readNum(hass, "sensor.lg_wp_waterdruk", 1.8);
-
-  const flowProblemOn = readStr(hass, [
-    "binary_sensor.lg_wp_stroming_te_laag",
-    "binary_sensor.lg_wp_flow_switch"
-  ], "off") === "on";
-
-  const rawFlowSensor = readNum(hass, ["sensor.lg_wp_flow_debiet", "sensor.lg_wpflow_debiet"], 0);
-  const pumpBinaryOn = readStr(hass, "binary_sensor.lg_wp_waterpomp_status", "off") === "on";
-  const pumpOn = pumpBinaryOn || compOn || rawFlowSensor > 5.1;
-  const flow = pumpOn ? rawFlowSensor : 0.0;
-
-  const defrostOn = readStr(hass, "binary_sensor.lg_wp_defrost_status", "off") === "on";
-  const buh1On = readStr(hass, "binary_sensor.lg_wp_backup_heater_1", "off") === "on";
-  const buh2On = readStr(hass, "binary_sensor.lg_wp_backup_heater_2", "off") === "on";
-  const boostOn = readStr(hass, "binary_sensor.lg_wp_sww_boost_heater_status", "off") === "on";
-
-  const isHeatingActive = compOn || buh1On || buh2On || boostOn;
-
-  const indoor = readIndoorTemp(hass, 20.5);
-  const indoorAvg = calculateIndoorDailyAverage(indoor);
-  const outdoor = readNum(hass, "sensor.lg_wp_buitentemperatuur", 6.5);
-  const errCode = Math.round(readNum(hass, "sensor.lg_wp_foutcode", 0));
-  const supply = readNum(hass, "sensor.lg_wp_aanvoertemperatuur", 26.0);
-  const ret = readNum(hass, "sensor.lg_wp_retourtemperatuur", 25.0);
-  const deltaT = +(supply - ret).toFixed(2);
-  const dhwTemp = readNum(hass, "sensor.lg_wp_sww_boilertemperatuur", 48.0);
-  const dhwTarget = readDhwTargetTemp(hass);
 
   const { oatLow, lwtHigh, oatHigh, lwtLow } = readStooklijnParams(hass);
 
@@ -2192,27 +2344,124 @@ function syncFromHass() {
     document.getElementById("valIndoorShift").textContent = shiftTxt;
   }
 
-  const dynamicTargetCv = calculateStooklijnTarget(outdoor, currentState.shift, oatLow, lwtHigh, oatHigh, lwtLow);
+  let compOn, pressure, flowProblemOn, pumpOn, flow, defrostOn, isHeatingActive;
+  let indoor, indoorAvg, outdoor, errCode, supply, ret, deltaT, dhwTemp, dhwTarget;
+  let dynamicTargetCv, isSwwActive, pThW, pElW, cop, swPowerOn, swDhwOn, swSilentOn;
 
-  const swwStatusOn = readStr(hass, "binary_sensor.lg_wp_sww_verwarmen_status", "off") === "on";
-  const haModeSensor = readStr(hass, "sensor.lg_wp_bedrijfsmodus_tekst", "").toLowerCase();
-  const isSwwByTemp = swwStatusOn && (supply > 38.0 || supply > (dhwTemp - 2.0));
-  const isSwwActive = haModeSensor.includes("sww") || isSwwByTemp;
+  if (!hass) {
+    // LIVE INTERACTIVE DEMO SIMULATION (when opened outside Home Assistant, e.g., GitHub Pages)
+    const wave = Math.sin(Date.now() / 6000);
+    const capNum = parseInt(userSettings.modelCapacity || "7", 10);
+    const capScale = capNum >= 12 ? 1.62 : (capNum >= 9 ? 1.26 : 1.0);
 
-  let pThW = 0;
-  let pElW = pumpOn ? 35 : 12;
-  let cop = 0.0;
+    swPowerOn = demoState.swPowerOn;
+    swDhwOn = demoState.swDhwOn;
+    swSilentOn = demoState.swSilentOn;
 
-  if (isHeatingActive) {
-    const haTh = readNum(hass, "sensor.lg_wp_thermisch_vermogen", -1);
-    const calcTh = flow > 5.0 && deltaT > 0 ? Math.round((flow / 60.0) * 4186.0 * deltaT) : 0;
-    pThW = haTh >= 0 ? haTh : calcTh;
+    compOn = swPowerOn;
+    pumpOn = swPowerOn;
+    flowProblemOn = false;
+    defrostOn = false;
+    isHeatingActive = compOn;
+    isSwwActive = compOn && swDhwOn && demoState.isSwwActive;
 
-    const haEl = readNum(hass, "sensor.lg_wp_elektrisch_vermogen", -1);
-    pElW = haEl > 0 ? haEl : 450;
+    const silentScale = swSilentOn ? 0.84 : 1.0;
+    outdoor = +(6.5 + wave * 0.1).toFixed(1);
+    indoor = 20.6;
+    indoorAvg = calculateIndoorDailyAverage(indoor);
+    errCode = 0;
+    dhwTarget = readDhwTargetTemp(null);
+    dhwTemp = isSwwActive ? +(Math.min(dhwTarget, 46.8 + (wave + 1) * 0.25)).toFixed(1) : 48.2;
+    pressure = isSwwActive ? 1.9 : (compOn ? 1.8 : 1.7);
 
-    const haCop = readNum(hass, "sensor.lg_wp_actuele_cop", -1);
-    cop = haCop > 0 ? haCop : (pElW > 80 && pThW > 0 ? Math.min(9.0, Math.max(0.0, pThW / pElW)) : 0.0);
+    dynamicTargetCv = calculateStooklijnTarget(outdoor, currentState.shift, oatLow, lwtHigh, oatHigh, lwtLow);
+    flow = compOn ? +((isSwwActive ? 18.4 : 16.4) * capScale * silentScale + wave * 0.15).toFixed(1) : 0.0;
+    const simDt = compOn ? +((isSwwActive ? 3.55 : 3.15) * silentScale + wave * 0.04).toFixed(2) : 0.3;
+
+    if (!compOn) {
+      ret = 24.2;
+      supply = 24.5;
+    } else if (isSwwActive) {
+      supply = +(dhwTemp + 4.2).toFixed(1);
+      ret = +(supply - simDt).toFixed(1);
+    } else if (userSettings.curveControl === "outlet") {
+      supply = +(dynamicTargetCv + 0.2 + wave * 0.08).toFixed(1);
+      ret = +(supply - simDt).toFixed(1);
+    } else {
+      ret = +(dynamicTargetCv + 0.2 + wave * 0.08).toFixed(1);
+      supply = +(ret + simDt).toFixed(1);
+    }
+    deltaT = +(supply - ret).toFixed(2);
+    pThW = compOn ? Math.round((flow / 60.0) * 4186.0 * deltaT) : 0;
+    cop = compOn
+      ? +(isSwwActive
+          ? (3.34 + (swSilentOn ? 0.12 : 0) + wave * 0.02)
+          : (4.86 + (swSilentOn ? 0.18 : 0) - (capNum - 7) * 0.03 + wave * 0.03)).toFixed(2)
+      : 0.0;
+    pElW = compOn && cop > 0 ? Math.round(pThW / cop) : 12;
+  } else {
+    compOn = readStr(hass, "binary_sensor.lg_wp_compressor_status", "off") === "on";
+    pressure = readNum(hass, "sensor.lg_wp_waterdruk", 1.8);
+
+    flowProblemOn = readStr(hass, [
+      "binary_sensor.lg_wp_stroming_te_laag",
+      "binary_sensor.lg_wp_flow_switch"
+    ], "off") === "on";
+
+    const rawFlowSensor = readNum(hass, ["sensor.lg_wp_flow_debiet", "sensor.lg_wpflow_debiet"], 0);
+    const pumpBinaryOn = readStr(hass, "binary_sensor.lg_wp_waterpomp_status", "off") === "on";
+    pumpOn = pumpBinaryOn || compOn || rawFlowSensor > 5.1;
+    flow = pumpOn ? rawFlowSensor : 0.0;
+
+    defrostOn = readStr(hass, "binary_sensor.lg_wp_defrost_status", "off") === "on";
+    const buh1On = readStr(hass, "binary_sensor.lg_wp_backup_heater_1", "off") === "on";
+    const buh2On = readStr(hass, "binary_sensor.lg_wp_backup_heater_2", "off") === "on";
+    const boostOn = readStr(hass, "binary_sensor.lg_wp_sww_boost_heater_status", "off") === "on";
+
+    isHeatingActive = compOn || buh1On || buh2On || boostOn;
+
+    indoor = readIndoorTemp(hass, 20.5);
+    indoorAvg = calculateIndoorDailyAverage(indoor);
+    outdoor = readNum(hass, "sensor.lg_wp_buitentemperatuur", 6.5);
+    errCode = Math.round(readNum(hass, "sensor.lg_wp_foutcode", 0));
+    supply = readNum(hass, "sensor.lg_wp_aanvoertemperatuur", 26.0);
+    ret = readNum(hass, "sensor.lg_wp_retourtemperatuur", 25.0);
+    deltaT = +(supply - ret).toFixed(2);
+    dhwTemp = readNum(hass, "sensor.lg_wp_sww_boilertemperatuur", 48.0);
+    dhwTarget = readDhwTargetTemp(hass);
+
+    dynamicTargetCv = calculateStooklijnTarget(outdoor, currentState.shift, oatLow, lwtHigh, oatHigh, lwtLow);
+
+    const swwStatusOn = readStr(hass, "binary_sensor.lg_wp_sww_verwarmen_status", "off") === "on";
+    const haModeSensor = readStr(hass, "sensor.lg_wp_bedrijfsmodus_tekst", "").toLowerCase();
+    const isSwwByTemp = swwStatusOn && (supply > 38.0 || supply > (dhwTemp - 2.0));
+    isSwwActive = haModeSensor.includes("sww") || isSwwByTemp;
+
+    pThW = 0;
+    pElW = pumpOn ? 35 : 12;
+    cop = 0.0;
+
+    if (isHeatingActive) {
+      const haTh = readNum(hass, "sensor.lg_wp_thermisch_vermogen", -1);
+      const calcTh = flow > 5.0 && deltaT > 0 ? Math.round((flow / 60.0) * 4186.0 * deltaT) : 0;
+      pThW = haTh >= 0 ? haTh : calcTh;
+
+      const haEl = readNum(hass, "sensor.lg_wp_elektrisch_vermogen", -1);
+      pElW = haEl > 0 ? haEl : 450;
+
+      const haCop = readNum(hass, "sensor.lg_wp_actuele_cop", -1);
+      cop = haCop > 0 ? haCop : (pElW > 80 && pThW > 0 ? Math.min(9.0, Math.max(0.0, pThW / pElW)) : 0.0);
+    }
+
+    swPowerOn = readStr(hass, ["switch.lg_wp_aan_uit"], "off") === "on";
+    swDhwOn = readStr(hass, [
+      "switch.lg_wp_sww_boiler_vrijgave",
+      "switch.lg_wp_sww_vrijgave"
+    ], "off") === "on";
+    swSilentOn = readStr(hass, [
+      "switch.lg_wp_silent_mode",
+      "binary_sensor.lg_wp_stiltemodus_status"
+    ], "off") === "on";
   }
 
   currentState = {
@@ -2257,16 +2506,6 @@ function syncFromHass() {
     modeText = t("postRunSniff");
     dotColor = "#38bdf8";
   }
-
-  const swPowerOn = readStr(hass, ["switch.lg_wp_aan_uit"], "off") === "on";
-  const swDhwOn = readStr(hass, [
-    "switch.lg_wp_sww_boiler_vrijgave",
-    "switch.lg_wp_sww_vrijgave"
-  ], "off") === "on";
-  const swSilentOn = readStr(hass, [
-    "switch.lg_wp_silent_mode",
-    "binary_sensor.lg_wp_stiltemodus_status"
-  ], "off") === "on";
 
   document.getElementById("btnPower").classList.toggle("active", swPowerOn);
   document.getElementById("btnDhw").classList.toggle("active", swDhwOn);
