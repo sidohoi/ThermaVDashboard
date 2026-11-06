@@ -2,8 +2,8 @@
 
 An interactive, real-time **Home Assistant** telemetry and control dashboard for the **LG Therma V R290 Monobloc** heat pump (connected via any **RS485-to-Modbus TCP gateway** such as **Elfin EW11** or **Waveshare**, with optional **LG ThinQ** or external smart kWh meter integration and a built-in thermodynamic power fallback).
 
-> **🖥️ Live Interactive Demo (100% Browser-Side / GitHub Pages):**
-> When opened outside Home Assistant (for example via **GitHub Pages** at `https://<your-username>.github.io/<repo-name>/`), the dashboard automatically runs in **`DEMO PREVIEW MODE`** with simulated live telemetry, 24-hour expandable step-charts, seasonal SCOP data, clickable topbar switches (`⚡ HP On/Off`, `🚿 DHW Enable`, `🌙 Silent Mode`), and the full `⚙️` Configuration modal — with zero connection to any private server.
+> **🖥️ Live Interactive Demo **
+https://sidohoi.github.io/ThermaVDashboard
 
 ---
 
